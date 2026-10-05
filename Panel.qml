@@ -242,6 +242,8 @@ Panel {
       brightnessAvailable: root.brightnessAvailable,
       focusedMonitor: root.focusedMonitor,
       targetMonitor: root.targetMonitor,
+      opened: root.opened,
+      panelHeight: panelColumn.implicitHeight,
       scale: root.monitorScale,
       looksLike: root.scaleValues,
       displays: root.displays
