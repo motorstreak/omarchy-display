@@ -78,6 +78,18 @@ end
 read_state()
 for _, desc in ipairs(order) do rule_for(desc) end
 
+-- Monitors seen for the first time keep the scale they have now.
+local seeded = false
+for _, m in ipairs(hl.get_monitors()) do
+  if usable(m) and not saved[m.description] then
+    table.insert(order, m.description)
+    saved[m.description] = { mode = mode_of(m), scale = m.scale, transform = m.transform or 0 }
+    rule_for(m.description)
+    seeded = true
+  end
+end
+if seeded then write_state() end
+
 hl.on("monitor.layout_changed", record)
 hl.on("monitor.added", record)
 
