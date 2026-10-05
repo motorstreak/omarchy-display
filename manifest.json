@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "display",
+  "name": "Display",
+  "version": "0.1.0",
+  "author": "Navin Samuel",
+  "description": "Omarchy's Display panel with a \"looks like\" resolution picker and a scale remembered per monitor.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Display",
+    "description": "Brightness, text size, \"looks like\" resolution per monitor, and displays",
+    "category": "System",
+    "allowMultiple": false
+  }
+}

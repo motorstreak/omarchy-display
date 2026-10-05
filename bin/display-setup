@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# Usage: display-setup [install|remove]
+#
+# Adds (or removes) the block at the end of ~/.config/hypr/monitors.lua that
+# loads this plugin's hypr/display.lua, which keeps a scale per monitor.
+# Hyprland reloads monitors.lua on save, so the change applies at once.
+
+set -e
+
+monitors_lua="$HOME/.config/hypr/monitors.lua"
+plugin_dir="$(cd "$(dirname "$0")/.." && pwd)"
+start="-- omarchy-display-start"
+end="-- omarchy-display-end"
+
+[[ -f $monitors_lua ]] || exit 0
+
+case "${1:-install}" in
+install)
+  grep -qxF "$start" "$monitors_lua" && exit 0
+  cat >>"$monitors_lua" <<EOF
+
+$start
+-- Per-monitor scales from the Display plugin. Keep this block last so the
+-- saved scales win over the rules above.
+do
+  local display = "$plugin_dir/hypr/display.lua"
+  local f = io.open(display)
+  if f then f:close(); dofile(display) end
+end
+$end
+EOF
+  ;;
+remove)
+  grep -qxF "$start" "$monitors_lua" || exit 0
+  # Drop the block and the blank line before it.
+  awk -v start="$start" -v end="$end" '
+    $0 == start { skip = 1; if (blank) blank = 0; next }
+    skip { if ($0 == end) skip = 0; next }
+    { if (blank) print ""; blank = ($0 == ""); if (!blank) print }
+    END { if (blank) print "" }
+  ' "$monitors_lua" >"$monitors_lua.tmp"
+  # Write in place: monitors.lua may be a symlink into a dotfiles repo.
+  cat "$monitors_lua.tmp" >"$monitors_lua" && rm "$monitors_lua.tmp"
+  ;;
+*)
+  echo "Usage: display-setup [install|remove]" >&2
+  exit 1
+  ;;
+esac
