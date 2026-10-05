@@ -16,6 +16,12 @@ BetterDisplay upgrades the Mac's display settings:
   remembered too. (Omarchy saves one scale for every monitor, so a laptop
   panel and an external monitor couldn't keep different scales.)
 
+- **Smooth text.** A Crisp / Smooth switch under Text size. Smooth renders
+  text the way macOS does: no snapping of letter shapes to the pixel grid
+  (only light vertical hinting), grayscale antialiasing, and stems darkened
+  (slightly emboldened) by FreeType. Apps pick it up when they next start.
+  Crisp is Omarchy's default.
+
 Everything else is Omarchy's Display panel: brightness, text size, turning
 displays on and off. `Super + Ctrl + D` opens this panel instead of Omarchy's.
 
@@ -44,6 +50,15 @@ saves each monitor's mode, scale and rotation to
 that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 (laptop display off, mirroring) load after `monitors.lua`, so they still win.
 
+Smooth text (`bin/display-text crisp|smooth|status`) writes
+`~/.config/fontconfig/conf.d/60-smooth-text.conf` (autohinter, light hinting,
+grayscale) and sets `FREETYPE_PROPERTIES` to turn on FreeType's stem
+darkening; `hypr/display.lua` sets it again at every login. Ghostty has its own
+FreeType settings, so the plugin adds `config-file = ?smooth-text` to the
+Ghostty config and writes `~/.config/ghostty/smooth-text` only while text is
+smooth. Ghostty runs one process for all its windows: quit it fully to see the
+change. Crisp removes both files.
+
 A saved rule replaces any rule you wrote for the same monitor above it. If you
 keep your own rule for a monitor (to set a position or VRR, say), delete that
 monitor's line from the state file, or put your rule after the block.
@@ -51,11 +66,13 @@ monitor's line from the state file, or put your rule after the block.
 ## Remove
 
 ```bash
+~/.config/omarchy/plugins/display/bin/display-text crisp
 ~/.config/omarchy/plugins/display/bin/display-setup remove
 omarchy plugin remove display
 ```
 
-and put `{"id": "omarchy.monitor"}` back in the bar layout.
+then put `{"id": "omarchy.monitor"}` back in the bar layout, and delete the
+`config-file = ?smooth-text` line from the Ghostty config.
 
 ## Credits
 

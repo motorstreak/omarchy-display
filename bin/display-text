@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Usage: display-text [crisp|smooth|status]
+#
+# Switches text rendering between Omarchy's crisp text and Mac-like smooth
+# text. Smooth text uses FreeType's autohinter with light (vertical-only)
+# hinting and grayscale antialiasing, and darkens glyph stems the way macOS
+# does. Apps pick the change up when they next start.
+#
+#   fontconfig  ~/.config/fontconfig/conf.d/60-smooth-text.conf
+#   darkening   FREETYPE_PROPERTIES, set by hypr/display.lua from the state file
+#   Ghostty     ~/.config/ghostty/smooth-text, included by the Ghostty config
+
+set -e
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-display"
+state_file="$state_dir/text"
+fontconfig_file="$HOME/.config/fontconfig/conf.d/60-smooth-text.conf"
+ghostty_config="$HOME/.config/ghostty/config"
+ghostty_include="$HOME/.config/ghostty/smooth-text"
+# Keep in step with hypr/display.lua.
+freetype_properties="autofitter:no-stem-darkening=0 cff:no-stem-darkening=0 autofitter:darkening-parameters=500,500,1000,500,2500,450,4000,400"
+
+current() {
+  [[ $(cat "$state_file" 2>/dev/null) == smooth ]] && echo smooth || echo crisp
+}
+
+# Ghostty ignores fontconfig's autohint, so its config includes an optional
+# file that only exists while text is smooth.
+ensure_ghostty_include() {
+  [[ -f $ghostty_config ]] || return 0
+  grep -qxF -e "config-file = ?smooth-text" "$ghostty_config" && return 0
+  printf '\n# Smooth text from the Omarchy Display plugin (present only while it is on).\nconfig-file = ?smooth-text\n' >>"$ghostty_config"
+}
+
+set_env() {
+  systemctl --user set-environment FREETYPE_PROPERTIES="$1" 2>/dev/null || true
+  dbus-update-activation-environment --systemd FREETYPE_PROPERTIES="$1" 2>/dev/null || true
+  hyprctl eval "hl.env(\"FREETYPE_PROPERTIES\", \"$1\")" >/dev/null 2>&1 || true
+}
+
+smooth() {
+  mkdir -p "$state_dir" "$(dirname "$fontconfig_file")"
+  cat >"$fontconfig_file" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- Smooth text from the Omarchy Display plugin; it removes this file for crisp text. -->
+<fontconfig>
+  <match target="font">
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="rgba" mode="assign"><const>none</const></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="autohint" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+  </match>
+</fontconfig>
+EOF
+  if [[ -f $ghostty_config ]]; then
+    ensure_ghostty_include
+    printf '# Smooth text from the Omarchy Display plugin.\nfreetype-load-flags = hinting,force-autohint,light\n' >"$ghostty_include"
+  fi
+  echo smooth >"$state_file"
+  set_env "$freetype_properties"
+}
+
+crisp() {
+  mkdir -p "$state_dir"
+  rm -f "$fontconfig_file" "$ghostty_include"
+  echo crisp >"$state_file"
+  set_env ""
+}
+
+case "${1:-status}" in
+status) current ;;
+smooth | crisp)
+  [[ $(current) == "$1" && $1 == crisp ]] && exit 0
+  "$1"
+  fc-cache -f >/dev/null 2>&1 || true
+  omarchy-notification-send -g 󰛖 "${1^} text" "Restart apps to see the change" 2>/dev/null || true
+  ;;
+*)
+  echo "Usage: display-text [crisp|smooth|status]" >&2
+  exit 1
+  ;;
+esac

@@ -108,6 +108,16 @@ display_scaling = {
   end,
 }
 
+-- Smooth text (bin/display-text): darken glyph stems the way macOS does, for
+-- every app started from here on. Keep in step with bin/display-text.
+local text = io.open(state_dir .. "/text")
+if text then
+  if text:read("l") == "smooth" then
+    hl.env("FREETYPE_PROPERTIES", "autofitter:no-stem-darkening=0 cff:no-stem-darkening=0 autofitter:darkening-parameters=500,500,1000,500,2500,450,4000,400")
+  end
+  text:close()
+end
+
 -- Super+Ctrl+D opens this panel instead of Omarchy's Display panel.
 hl.unbind("SUPER + CTRL + D")
 o.bind("SUPER + CTRL + D", "Display", "omarchy-shell shell toggle display")

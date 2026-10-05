@@ -86,6 +86,7 @@ Panel {
     var list = []
     if (brightnessAvailable) list.push("brightness")
     list.push("textsize")
+    list.push("rendering")
     if (enabledNames.length > 1) list.push("target")
     list.push("scale")
     if (displays.length > 1) list.push("monitors")
@@ -95,6 +96,7 @@ Panel {
   function sectionCount(section) {
     if (section === "brightness") return 0  // only the slider sentinel at -1
     if (section === "textsize") return 0    // slider sentinel at -1, like brightness
+    if (section === "rendering") return textModes.length
     if (section === "scale") return scaleValues.length
     if (section === "target") return enabledNames.length
     if (section === "monitors") return displays.length
@@ -103,7 +105,7 @@ Panel {
 
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
-    return section === "brightness" || section === "textsize" || section === "target"
+    return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
   }
 
   function sectionFirstIndex(section) {
@@ -154,6 +156,10 @@ Panel {
   // everywhere else, no-op because adjustBrightness handles horizontal motion
   // on the brightness slider.
   function moveCursorH(delta) {
+    if (focusSection === "rendering") {
+      selectedIndex = Math.max(0, Math.min(textModes.length - 1, selectedIndex + delta))
+      return
+    }
     if (focusSection === "target") {
       var t = selectedIndex + delta
       if (t < 0) t = 0
@@ -176,6 +182,10 @@ Panel {
   }
 
   function activateCursor() {
+    if (focusSection === "rendering" && selectedIndex >= 0 && selectedIndex < textModes.length) {
+      setTextMode(textModes[selectedIndex].id)
+      return
+    }
     if (focusSection === "scale" && selectedIndex >= 0 && selectedIndex < scaleValues.length) {
       setScale(scaleValues[selectedIndex].exact)
       return
@@ -242,6 +252,7 @@ Panel {
       brightnessAvailable: root.brightnessAvailable,
       focusedMonitor: root.focusedMonitor,
       targetMonitor: root.targetMonitor,
+      textMode: root.textMode,
       opened: root.opened,
       panelHeight: panelColumn.implicitHeight,
       scale: root.monitorScale,
@@ -257,6 +268,8 @@ Panel {
     function state(): string { return root.stateIpc() }
     // Sets the scale of the monitor the panel targets (for testing).
     function scale(value: string): string { root.setScale(Number(value)); return "ok" }
+    // Sets text rendering: "crisp" or "smooth".
+    function text(mode: string): string { root.setTextMode(mode); return "ok" }
     function open() { root.open() }
     function close() { root.close() }
     function toggle() { root.toggle() }
@@ -266,6 +279,7 @@ Panel {
 
   function refresh() {
     if (!stateProc.running) stateProc.running = true
+    if (!textModeProc.running) textModeProc.running = true
     if (!monitorsProc.running) monitorsProc.running = true
   }
 
@@ -335,6 +349,20 @@ Panel {
     actionProc.command = ["hyprctl", "eval",
       "if display_scaling then display_scaling.set(\"" + targetMonitor + "\", " + value.toPrecision(8) + ") end"]
     if (!actionProc.running) actionProc.running = true
+  }
+
+  // ---- Text rendering (bin/display-text): crisp, or Mac-like smooth ----
+  readonly property var textModes: [
+    { id: "crisp", label: "Crisp" },
+    { id: "smooth", label: "Smooth" }
+  ]
+  property string textMode: ""
+
+  function setTextMode(mode) {
+    if (mode === textMode) return
+    textMode = mode
+    textModeSetProc.command = [root.pluginDir + "/bin/display-text", mode]
+    if (!textModeSetProc.running) textModeSetProc.running = true
   }
 
   // ---- Text size (shell base font + GTK text-scaling, via one CLI) ----
@@ -420,6 +448,20 @@ Panel {
     running: root.opened
     repeat: true
     onTriggered: root.refresh()
+  }
+
+  Process {
+    id: textModeProc
+    command: [root.pluginDir + "/bin/display-text", "status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.textMode = String(text || "").trim()
+    }
+  }
+
+  Process {
+    id: textModeSetProc
+    onRunningChanged: if (!running) root.refresh()
   }
 
   Process {
@@ -559,7 +601,7 @@ Panel {
         else if (dx !== 0) {
           if (root.focusSection === "brightness") root.adjustBrightness(dx * 5)
           else if (root.focusSection === "textsize") root.adjustTextSize(dx)
-          else if (root.focusSection === "scale") root.moveCursorH(dx)
+          else root.moveCursorH(dx)
         }
       }
       onActivateRequested: if (root.cursorActive) root.activateCursor()
@@ -784,6 +826,58 @@ Panel {
             }
           }
 
+          // ---------- Text rendering ----------
+          Column {
+            width: parent.width
+            spacing: Style.space(6)
+
+            Item {
+              width: parent.width
+              implicitHeight: Math.max(renderingHeader.implicitHeight, renderingHint.implicitHeight)
+
+              PanelSectionHeader {
+                id: renderingHeader
+                text: "TEXT RENDERING"
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Text {
+                id: renderingHint
+                textFormat: Text.PlainText
+                text: root.textMode === "smooth" ? "like macOS" : "sharpest"
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(6)
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            Row {
+              id: renderingRow
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Repeater {
+                model: root.textModes
+
+                TextModePill {
+                  required property var modelData
+                  required property int index
+
+                  mode: modelData
+                  pillIndex: index
+                  width: (renderingRow.width - renderingRow.spacing * (root.textModes.length - 1)) / root.textModes.length
+                }
+              }
+            }
+          }
+
           // ---------- Scale ----------
           PanelSeparator {
             foreground: root.bar.foreground
@@ -904,6 +998,31 @@ Panel {
           }
         }
       }
+    }
+  }
+
+  component TextModePill: Button {
+    id: modePill
+    required property var mode
+    required property int pillIndex
+
+    text: mode.label
+    fontSize: Style.font.caption
+    foreground: root.bar.foreground
+    fontFamily: root.bar.fontFamily
+    horizontalPadding: Style.spacing.sm
+    verticalPadding: Style.spacing.controlPaddingY
+    bordered: true
+
+    active: root.textMode === mode.id
+    hasCursor: root.cursorActive && root.focusSection === "rendering" && root.selectedIndex === pillIndex
+
+    onClicked: root.setTextMode(mode.id)
+    onHovered: function(isHovered) {
+      if (!isHovered || root.reflowingText) return
+      root.cursorActive = true
+      root.focusSection = "rendering"
+      root.selectedIndex = modePill.pillIndex
     }
   }
 
