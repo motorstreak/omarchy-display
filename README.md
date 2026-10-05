@@ -57,7 +57,11 @@ grayscale, Regular → Medium) and sets `FREETYPE_PROPERTIES` to turn on FreeTyp
 darkening; `hypr/display.lua` sets it again at every login. Ghostty has its own
 FreeType settings, so the plugin adds `config-file = ?smooth-text` to the
 Ghostty config and writes `~/.config/ghostty/smooth-text` only while text is
-smooth. Ghostty runs one process for all its windows: quit it fully to see the
+smooth; it switches Ghostty to Medium too if its font has a Medium style.
+Omarchy's JetBrains Mono package has no Medium: take
+`JetBrainsMonoNerdFont-Medium*.ttf` from the full `ttf-jetbrains-mono-nerd`
+package into `~/.local/share/fonts` (the full package conflicts with the
+basic one Omarchy depends on). Ghostty runs one process for all its windows: quit it fully to see the
 change. Crisp removes both files.
 
 A saved rule replaces any rule you wrote for the same monitor above it. If you

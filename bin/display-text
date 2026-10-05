@@ -65,6 +65,11 @@ EOF
   if [[ -f $ghostty_config ]]; then
     ensure_ghostty_include
     printf '# Smooth text from the Omarchy Display plugin.\nfreetype-load-flags = hinting,force-autohint,light\n' >"$ghostty_include"
+    # One weight heavier, like other apps, if the terminal font has Medium.
+    family=$(sed -n 's/^font-family *= *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$ghostty_config" | tail -1)
+    if [[ -n $family ]] && fc-list ":family=$family:style=Medium" | grep -q .; then
+      printf 'font-style = Medium\nfont-style-italic = Medium Italic\n' >>"$ghostty_include"
+    fi
   fi
   echo smooth >"$state_file"
   set_env "$freetype_properties"
