@@ -249,7 +249,7 @@ Panel {
   }
 
   IpcHandler {
-    target: "omarchy.monitor"
+    target: root.ipcTarget
 
     function brightness(percent: string): string { return root.brightnessIpc(percent) }
     function state(): string { return root.stateIpc() }

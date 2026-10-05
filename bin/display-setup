@@ -15,9 +15,13 @@ end="-- omarchy-display-end"
 
 [[ -f $monitors_lua ]] || exit 0
 
+# Each bar's panel runs this at once; let one at a time check and write.
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/omarchy-display-setup.lock"
+flock 9
+
 case "${1:-install}" in
 install)
-  grep -qxF "$start" "$monitors_lua" && exit 0
+  grep -qxF -e "$start" "$monitors_lua" && exit 0
   cat >>"$monitors_lua" <<EOF
 
 $start
@@ -32,7 +36,7 @@ $end
 EOF
   ;;
 remove)
-  grep -qxF "$start" "$monitors_lua" || exit 0
+  grep -qxF -e "$start" "$monitors_lua" || exit 0
   # Drop the block and the blank line before it.
   awk -v start="$start" -v end="$end" '
     $0 == start { skip = 1; if (blank) blank = 0; next }
