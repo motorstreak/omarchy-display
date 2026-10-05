@@ -73,9 +73,7 @@ crisp() {
 case "${1:-status}" in
 status) current ;;
 smooth | crisp)
-  [[ $(current) == "$1" && $1 == crisp ]] && exit 0
   "$1"
-  fc-cache -f >/dev/null 2>&1 || true
   omarchy-notification-send -g 󰛖 "${1^} text" "Restart apps to see the change" 2>/dev/null || true
   ;;
 *)

@@ -358,11 +358,18 @@ Panel {
   ]
   property string textMode: ""
 
+  // A switch made while the last one is still being applied waits for it.
+  property string pendingTextMode: ""
+
   function setTextMode(mode) {
-    if (mode === textMode) return
+    if (mode === textMode && !textModeSetProc.running) return
     textMode = mode
+    if (textModeSetProc.running) {
+      pendingTextMode = mode
+      return
+    }
     textModeSetProc.command = [root.pluginDir + "/bin/display-text", mode]
-    if (!textModeSetProc.running) textModeSetProc.running = true
+    textModeSetProc.running = true
   }
 
   // ---- Text size (shell base font + GTK text-scaling, via one CLI) ----
@@ -461,7 +468,17 @@ Panel {
 
   Process {
     id: textModeSetProc
-    onRunningChanged: if (!running) root.refresh()
+    onRunningChanged: {
+      if (running) return
+      if (root.pendingTextMode !== "") {
+        var next = root.pendingTextMode
+        root.pendingTextMode = ""
+        textModeSetProc.command = [root.pluginDir + "/bin/display-text", next]
+        textModeSetProc.running = true
+        return
+      }
+      root.refresh()
+    }
   }
 
   Process {
