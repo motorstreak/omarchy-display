@@ -18,8 +18,9 @@ BetterDisplay upgrades the Mac's display settings:
 
 - **Smooth text.** A Crisp / Smooth switch under Text size. Smooth renders
   text the way macOS does: no snapping of letter shapes to the pixel grid
-  (only light vertical hinting), grayscale antialiasing, and stems darkened
-  (slightly emboldened) by FreeType. Apps pick it up when they next start.
+  (only light vertical hinting), grayscale antialiasing, stems darkened
+  (slightly emboldened) by FreeType, and regular text drawn one weight heavier
+  (Medium) in fonts that have it, such as Omarchy's Adwaita Sans. Apps pick it up when they next start.
   Crisp is Omarchy's default.
 
 Everything else is Omarchy's Display panel: brightness, text size, turning
@@ -52,7 +53,7 @@ that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 
 Smooth text (`bin/display-text crisp|smooth|status`) writes
 `~/.config/fontconfig/conf.d/60-smooth-text.conf` (autohinter, light hinting,
-grayscale) and sets `FREETYPE_PROPERTIES` to turn on FreeType's stem
+grayscale, Regular → Medium) and sets `FREETYPE_PROPERTIES` to turn on FreeType's stem
 darkening; `hypr/display.lua` sets it again at every login. Ghostty has its own
 FreeType settings, so the plugin adds `config-file = ?smooth-text` to the
 Ghostty config and writes `~/.config/ghostty/smooth-text` only while text is

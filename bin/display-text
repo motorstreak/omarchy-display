@@ -4,8 +4,9 @@
 #
 # Switches text rendering between Omarchy's crisp text and Mac-like smooth
 # text. Smooth text uses FreeType's autohinter with light (vertical-only)
-# hinting and grayscale antialiasing, and darkens glyph stems the way macOS
-# does. Apps pick the change up when they next start.
+# hinting and grayscale antialiasing, darkens glyph stems the way macOS does
+# (already FreeType's maximum), and draws regular text one weight heavier
+# (Medium) where the font has it. Apps pick the change up when they next start.
 #
 #   fontconfig  ~/.config/fontconfig/conf.d/60-smooth-text.conf
 #   darkening   FREETYPE_PROPERTIES, set by hypr/display.lua from the state file
@@ -46,6 +47,12 @@ smooth() {
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <!-- Smooth text from the Omarchy Display plugin; it removes this file for crisp text. -->
 <fontconfig>
+  <!-- One step heavier: regular text is drawn Medium where the font has it
+       (variable fonts such as Adwaita Sans); other fonts stay Regular. -->
+  <match target="pattern">
+    <test name="weight" compare="eq"><const>regular</const></test>
+    <edit name="weight" mode="assign"><const>medium</const></edit>
+  </match>
   <match target="font">
     <edit name="antialias" mode="assign"><bool>true</bool></edit>
     <edit name="rgba" mode="assign"><const>none</const></edit>
