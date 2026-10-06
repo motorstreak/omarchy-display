@@ -108,14 +108,13 @@ display_scaling = {
   end,
 }
 
--- Smooth text (bin/display-text): darken glyph stems the way macOS does, for
--- every app started from here on. Keep in step with bin/display-text.
-local text = io.open(state_dir .. "/text")
-if text then
-  if text:read("l") == "smooth" then
-    hl.env("FREETYPE_PROPERTIES", "autofitter:no-stem-darkening=0 cff:no-stem-darkening=0 autofitter:darkening-parameters=500,500,1000,500,2500,450,4000,400")
-  end
-  text:close()
+-- Text rendering (bin/display-text): darken glyph stems the way macOS does,
+-- for every app started from here on, at the strength the panel last set.
+local properties = io.open(state_dir .. "/freetype-properties")
+if properties then
+  local value = properties:read("l")
+  properties:close()
+  if value and value ~= "" then hl.env("FREETYPE_PROPERTIES", value) end
 end
 
 -- Super+Ctrl+D opens this panel instead of Omarchy's Display panel.

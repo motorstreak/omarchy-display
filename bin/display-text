@@ -1,33 +1,51 @@
 #!/bin/bash
 
-# Usage: display-text [crisp|smooth|status]
+# Usage: display-text [crisp|soft|smooth|heavy|status]
 #
-# Switches text rendering between Omarchy's crisp text and Mac-like smooth
-# text. Smooth text uses FreeType's autohinter with light (vertical-only)
-# hinting and grayscale antialiasing, darkens glyph stems the way macOS does
-# (already FreeType's maximum), and draws regular text one weight heavier
-# (Medium) where the font has it. Apps pick the change up when they next start.
+# Sets how heavy and smooth text is drawn, in four steps:
+#
+#   crisp   Omarchy's default: hinted, thin text.
+#   soft    Mac-like: FreeType's autohinter with light (vertical-only) hinting,
+#           grayscale antialiasing, and glyph stems darkened at half strength.
+#   smooth  As soft, with stems darkened at FreeType's maximum.
+#   heavy   As smooth, and regular text drawn one weight heavier (Medium)
+#           where the font has it.
+#
+# Apps pick the change up when they next start.
 #
 #   fontconfig  ~/.config/fontconfig/conf.d/60-smooth-text.conf
-#   darkening   FREETYPE_PROPERTIES, set by hypr/display.lua from the state file
+#   darkening   FREETYPE_PROPERTIES, kept in the state dir; hypr/display.lua
+#               sets it again at every login
 #   Ghostty     ~/.config/ghostty/smooth-text, included by the Ghostty config
 
 set -e
 
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-display"
 state_file="$state_dir/text"
+properties_file="$state_dir/freetype-properties"
 fontconfig_file="$HOME/.config/fontconfig/conf.d/60-smooth-text.conf"
 ghostty_config="$HOME/.config/ghostty/config"
 ghostty_include="$HOME/.config/ghostty/smooth-text"
-# Keep in step with hypr/display.lua.
-freetype_properties="autofitter:no-stem-darkening=0 cff:no-stem-darkening=0 autofitter:darkening-parameters=500,500,1000,500,2500,450,4000,400"
 
 current() {
-  [[ $(cat "$state_file" 2>/dev/null) == smooth ]] && echo smooth || echo crisp
+  case $(cat "$state_file" 2>/dev/null) in
+  soft) echo soft ;;
+  smooth) echo smooth ;;
+  heavy) echo heavy ;;
+  *) echo crisp ;;
+  esac
+}
+
+# Stem darkening for FreeType's autohinter and CFF fonts. Amounts go up to
+# 500 (FreeType's maximum; anything higher is ignored for its lighter default),
+# easing off for wider stems.
+darkening() {
+  local a=$1
+  echo "autofitter:no-stem-darkening=0 cff:no-stem-darkening=0 autofitter:darkening-parameters=500,$a,1000,$a,2500,$((a * 9 / 10)),4000,$((a * 8 / 10))"
 }
 
 # Ghostty ignores fontconfig's autohint, so its config includes an optional
-# file that only exists while text is smooth.
+# file that only exists while text isn't crisp.
 ensure_ghostty_include() {
   [[ -f $ghostty_config ]] || return 0
   grep -qxF -e "config-file = ?smooth-text" "$ghostty_config" && return 0
@@ -40,19 +58,24 @@ set_env() {
   hyprctl eval "hl.env(\"FREETYPE_PROPERTIES\", \"$1\")" >/dev/null 2>&1 || true
 }
 
-smooth() {
-  mkdir -p "$state_dir" "$(dirname "$fontconfig_file")"
-  cat >"$fontconfig_file" <<'EOF'
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<!-- Smooth text from the Omarchy Display plugin; it removes this file for crisp text. -->
-<fontconfig>
+# $1: soft, smooth or heavy.
+apply() {
+  local mode=$1 medium="" properties
+  [[ $mode == soft ]] && properties=$(darkening 250) || properties=$(darkening 500)
+  [[ $mode == heavy ]] && medium='
   <!-- One step heavier: regular text is drawn Medium where the font has it
        (variable fonts such as Adwaita Sans); other fonts stay Regular. -->
   <match target="pattern">
     <test name="weight" compare="eq"><const>regular</const></test>
     <edit name="weight" mode="assign"><const>medium</const></edit>
-  </match>
+  </match>'
+
+  mkdir -p "$state_dir" "$(dirname "$fontconfig_file")"
+  cat >"$fontconfig_file" <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- ${mode^} text from the Omarchy Display plugin; it removes this file for crisp text. -->
+<fontconfig>$medium
   <match target="font">
     <edit name="antialias" mode="assign"><bool>true</bool></edit>
     <edit name="rgba" mode="assign"><const>none</const></edit>
@@ -62,34 +85,42 @@ smooth() {
   </match>
 </fontconfig>
 EOF
+
   if [[ -f $ghostty_config ]]; then
     ensure_ghostty_include
-    printf '# Smooth text from the Omarchy Display plugin.\nfreetype-load-flags = hinting,force-autohint,light\n' >"$ghostty_include"
-    # One weight heavier, like other apps, if the terminal font has Medium.
+    printf '# %s text from the Omarchy Display plugin.\nfreetype-load-flags = hinting,force-autohint,light\n' "${mode^}" >"$ghostty_include"
+    # Heavy: one weight heavier, like other apps, if the terminal font has Medium.
     family=$(sed -n 's/^font-family *= *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$ghostty_config" | tail -1)
-    if [[ -n $family ]] && fc-list ":family=$family:style=Medium" | grep -q .; then
+    if [[ $mode == heavy && -n $family ]] && fc-list ":family=$family:style=Medium" | grep -q .; then
       printf 'font-style = Medium\nfont-style-italic = Medium Italic\n' >>"$ghostty_include"
     fi
   fi
-  echo smooth >"$state_file"
-  set_env "$freetype_properties"
+
+  echo "$mode" >"$state_file"
+  echo "$properties" >"$properties_file"
+  set_env "$properties"
 }
 
 crisp() {
   mkdir -p "$state_dir"
   rm -f "$fontconfig_file" "$ghostty_include"
   echo crisp >"$state_file"
+  : >"$properties_file"
   set_env ""
 }
 
 case "${1:-status}" in
 status) current ;;
-smooth | crisp)
-  "$1"
+crisp)
+  crisp
+  omarchy-notification-send -g 󰛖 "Crisp text" "Restart apps to see the change" 2>/dev/null || true
+  ;;
+soft | smooth | heavy)
+  apply "$1"
   omarchy-notification-send -g 󰛖 "${1^} text" "Restart apps to see the change" 2>/dev/null || true
   ;;
 *)
-  echo "Usage: display-text [crisp|smooth|status]" >&2
+  echo "Usage: display-text [crisp|soft|smooth|heavy|status]" >&2
   exit 1
   ;;
 esac

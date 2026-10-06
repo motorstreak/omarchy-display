@@ -16,12 +16,14 @@ BetterDisplay upgrades the Mac's display settings:
   remembered too. (Omarchy saves one scale for every monitor, so a laptop
   panel and an external monitor couldn't keep different scales.)
 
-- **Smooth text.** A Crisp / Smooth switch under Text size. Smooth renders
-  text the way macOS does: no snapping of letter shapes to the pixel grid
-  (only light vertical hinting), grayscale antialiasing, stems darkened
-  (slightly emboldened) by FreeType, and regular text drawn one weight heavier
-  (Medium) in fonts that have it, such as Omarchy's Adwaita Sans. Apps pick it up when they next start.
-  Crisp is Omarchy's default.
+- **Smooth text.** Four steps under Text size: **Crisp** (Omarchy's
+  default), then three Mac-like ones. They render text the way macOS does: no
+  snapping of letter shapes to the pixel grid (only light vertical hinting),
+  grayscale antialiasing, and stems darkened (slightly emboldened) by FreeType
+  — at half strength for **Soft**, at FreeType's maximum for **Smooth**.
+  **Heavy** also draws regular text one weight heavier (Medium) in fonts that
+  have it, such as Omarchy's Adwaita Sans. Apps pick it up when they next
+  start.
 
 Everything else is Omarchy's Display panel: brightness, text size, turning
 displays on and off. `Super + Ctrl + D` opens this panel instead of Omarchy's.
@@ -51,13 +53,14 @@ saves each monitor's mode, scale and rotation to
 that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 (laptop display off, mirroring) load after `monitors.lua`, so they still win.
 
-Smooth text (`bin/display-text crisp|smooth|status`) writes
+Text rendering (`bin/display-text crisp|soft|smooth|heavy|status`) writes
 `~/.config/fontconfig/conf.d/60-smooth-text.conf` (autohinter, light hinting,
-grayscale, Regular → Medium) and sets `FREETYPE_PROPERTIES` to turn on FreeType's stem
-darkening; `hypr/display.lua` sets it again at every login. Ghostty has its own
+grayscale; Regular → Medium for Heavy) and sets `FREETYPE_PROPERTIES` to turn on
+FreeType's stem darkening; `hypr/display.lua` sets it again at every login. Ghostty has its own
 FreeType settings, so the plugin adds `config-file = ?smooth-text` to the
 Ghostty config and writes `~/.config/ghostty/smooth-text` only while text is
-smooth; it switches Ghostty to Medium too if its font has a Medium style.
+not crisp; on Heavy it switches Ghostty to Medium too if its font has a Medium
+style.
 Omarchy's JetBrains Mono package has no Medium: take
 `JetBrainsMonoNerdFont-Medium*.ttf` from the full `ttf-jetbrains-mono-nerd`
 package into `~/.local/share/fonts` (the full package conflicts with the

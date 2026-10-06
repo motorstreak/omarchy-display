@@ -268,7 +268,7 @@ Panel {
     function state(): string { return root.stateIpc() }
     // Sets the scale of the monitor the panel targets (for testing).
     function scale(value: string): string { root.setScale(Number(value)); return "ok" }
-    // Sets text rendering: "crisp" or "smooth".
+    // Sets text rendering: "crisp", "soft", "smooth" or "heavy".
     function text(mode: string): string { root.setTextMode(mode); return "ok" }
     function open() { root.open() }
     function close() { root.close() }
@@ -351,11 +351,18 @@ Panel {
     if (!actionProc.running) actionProc.running = true
   }
 
-  // ---- Text rendering (bin/display-text): crisp, or Mac-like smooth ----
+  // ---- Text rendering (bin/display-text): crisp, then three Mac-like steps ----
   readonly property var textModes: [
-    { id: "crisp", label: "Crisp" },
-    { id: "smooth", label: "Smooth" }
+    { id: "crisp", label: "Crisp", hint: "sharpest" },
+    { id: "soft", label: "Soft", hint: "like macOS, lighter" },
+    { id: "smooth", label: "Smooth", hint: "like macOS" },
+    { id: "heavy", label: "Heavy", hint: "like macOS, heavier" }
   ]
+  function textModeHint(mode) {
+    for (var i = 0; i < textModes.length; i++)
+      if (textModes[i].id === mode) return textModes[i].hint
+    return ""
+  }
   property string textMode: ""
 
   // A switch made while the last one is still being applied waits for it.
@@ -864,7 +871,7 @@ Panel {
               Text {
                 id: renderingHint
                 textFormat: Text.PlainText
-                text: root.textMode === "smooth" ? "like macOS" : "sharpest"
+                text: root.textModeHint(root.textMode)
                 color: Qt.darker(root.bar.foreground, 1.4)
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.caption
