@@ -12,6 +12,10 @@ Panel {
   ipcTarget: "io.github.motorstreak.display"
   manageIpc: false
 
+  // Gap between pills in a row or grid. Omarchy's xs (3 px) leaves fully
+  // rounded pills nearly touching.
+  readonly property int pillGap: Style.space(8)
+
   // manageIpc: false so this panel can own the single IpcHandler the target
   // permits — needed for the brightness + state methods below.
   property int brightnessPercent: 0
@@ -998,7 +1002,7 @@ Panel {
             Row {
               id: setupRow
               width: parent.width
-              spacing: Style.spacing.xs
+              spacing: root.pillGap
 
               Button {
                 text: "Allow"
@@ -1207,7 +1211,7 @@ Panel {
             Row {
               id: renderingRow
               width: parent.width
-              spacing: Style.spacing.xs
+              spacing: root.pillGap
 
               Repeater {
                 model: root.textModes
@@ -1244,7 +1248,7 @@ Panel {
             Row {
               id: displaysRow
               width: parent.width
-              spacing: Style.spacing.xs
+              spacing: root.pillGap
 
               Repeater {
                 model: root.displays
@@ -1304,7 +1308,7 @@ Panel {
               id: scaleRow
               width: parent.width
               columns: root.scaleColumns
-              spacing: Style.spacing.xs
+              spacing: root.pillGap
 
               readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
 
@@ -1355,7 +1359,7 @@ Panel {
               visible: root.refreshOptions.length > 1
               width: parent.width
               columns: root.refreshColumns
-              spacing: Style.spacing.xs
+              spacing: root.pillGap
 
               Repeater {
                 model: root.refreshOptions
@@ -1485,7 +1489,7 @@ Panel {
               id: arrangeRow
               visible: root.arrangeVisible
               width: parent.width
-              spacing: Style.spacing.xs
+              spacing: root.pillGap
 
               Repeater {
                 model: root.arrangeOptions
