@@ -37,12 +37,10 @@ Panel {
   //   "scale"      - 6 Button scale presets; treated as a single
   //                  horizontal row from j/k's perspective. h/l moves
   //                  between presets, identical to bluetooth's header.
-  //   "monitors"   - one row of display pills for turning displays on and off;
-  //                  h/l moves along it.
   // Mouse hover on a target updates root state via the components' `hovered`
   // signal so keyboard cursor and pointer share one highlight.
-  //   "target"     - which monitor LOOKS LIKE applies to; one row of pills,
-  //                  only with more than one display on.
+  //   "target"     - the DISPLAYS pills: h/l chooses the display LOOKS LIKE,
+  //                  REFRESH RATE and ARRANGE apply to; Enter turns it on/off.
   //   "scale"      - LOOKS LIKE options, a grid scaleColumns wide: j/k move
   //                  by rows, h/l along a row.
   readonly property string pluginDir: decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")).replace(/\/$/, "")
@@ -87,11 +85,10 @@ Panel {
     if (brightnessAvailable) list.push("brightness")
     list.push("textsize")
     list.push("rendering")
-    if (enabledNames.length > 1) list.push("target")
+    if (displays.length > 1) list.push("target")
     list.push("scale")
     if (refreshOptions.length > 1) list.push("refresh")
     if (arrangeVisible) list.push("arrange")
-    if (displays.length > 1) list.push("monitors")
     return list
   }
 
@@ -100,17 +97,16 @@ Panel {
     if (section === "textsize") return 0    // slider sentinel at -1, like brightness
     if (section === "rendering") return textModes.length
     if (section === "scale") return scaleValues.length
-    if (section === "target") return enabledNames.length
+    if (section === "target") return displays.length
     if (section === "arrange") return arrangeOptions.length
     if (section === "refresh") return refreshOptions.length
-    if (section === "monitors") return displays.length
     return 0
   }
 
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
     return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
-      || section === "arrange" || section === "refresh" || section === "monitors"
+      || section === "arrange" || section === "refresh"
   }
 
   function sectionFirstIndex(section) {
@@ -161,10 +157,6 @@ Panel {
   // everywhere else, no-op because adjustBrightness handles horizontal motion
   // on the brightness slider.
   function moveCursorH(delta) {
-    if (focusSection === "monitors") {
-      selectedIndex = Math.max(0, Math.min(displays.length - 1, selectedIndex + delta))
-      return
-    }
     if (focusSection === "refresh") {
       selectedIndex = Math.max(0, Math.min(refreshOptions.length - 1, selectedIndex + delta))
       return
@@ -178,11 +170,10 @@ Panel {
       return
     }
     if (focusSection === "target") {
-      var t = selectedIndex + delta
-      if (t < 0) t = 0
-      if (t > enabledNames.length - 1) t = enabledNames.length - 1
+      var t = Math.max(0, Math.min(displays.length - 1, selectedIndex + delta))
       selectedIndex = t
-      targetMonitor = enabledNames[t]
+      // Only a display that's on can be chosen (one that's off has no settings).
+      if (displays[t] && displays[t].enabled) targetMonitor = displays[t].name
       return
     }
     if (focusSection !== "scale") return
@@ -215,9 +206,10 @@ Panel {
       arrange(arrangeOptions[selectedIndex].id)
       return
     }
-    if (focusSection === "monitors" && selectedIndex >= 0 && selectedIndex < displays.length) {
+    // Enter on a display pill turns it on or off.
+    if (focusSection === "target" && selectedIndex >= 0 && selectedIndex < displays.length) {
       var d = displays[selectedIndex]
-      if (d) toggleDisplay(d.name, d.enabled)
+      if (d && (!d.enabled || enabledDisplayCount > 1)) toggleDisplay(d.name, d.enabled)
     }
     // brightness: no separate action; the slider value is the action.
   }
@@ -712,8 +704,8 @@ Panel {
 
   // Entering the monitor pills puts the cursor on the targeted monitor.
   onFocusSectionChanged: if (focusSection === "target") {
-    var t = enabledNames.indexOf(targetMonitor)
-    if (t >= 0) selectedIndex = t
+    for (var t = 0; t < displays.length; t++)
+      if (displays[t] && displays[t].name === targetMonitor) selectedIndex = t
   }
 
   onBrightnessAvailableChanged: clampCursor()
@@ -1232,6 +1224,43 @@ Panel {
             }
           }
 
+          // ---------- Displays: choose one for the sections below, or turn it on/off ----------
+          PanelSeparator {
+            visible: root.displays.length > 1
+            foreground: root.bar.foreground
+          }
+
+          Column {
+            visible: root.displays.length > 1
+            width: parent.width
+            spacing: Style.space(10)
+
+            PanelSectionHeader {
+              text: "DISPLAYS"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Row {
+              id: displaysRow
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Repeater {
+                model: root.displays
+
+                DisplayPill {
+                  required property var modelData
+                  required property int index
+
+                  display: modelData
+                  pillIndex: index
+                  width: (displaysRow.width - displaysRow.spacing * (root.displays.length - 1)) / root.displays.length
+                }
+              }
+            }
+          }
+
           // ---------- Scale ----------
           PanelSeparator {
             foreground: root.bar.foreground
@@ -1268,27 +1297,6 @@ Panel {
                 anchors.right: parent.right
                 anchors.rightMargin: Style.space(6)
                 anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-
-            // Which monitor the options apply to, with more than one on.
-            Row {
-              id: targetRow
-              visible: root.enabledNames.length > 1
-              width: parent.width
-              spacing: Style.spacing.xs
-
-              Repeater {
-                model: root.enabledNames
-
-                TargetPill {
-                  required property string modelData
-                  required property int index
-
-                  monitorName: modelData
-                  pillIndex: index
-                  width: (targetRow.width - targetRow.spacing * (root.enabledNames.length - 1)) / root.enabledNames.length
-                }
               }
             }
 
@@ -1494,45 +1502,6 @@ Panel {
             }
           }
 
-          // ---------- Monitors ----------
-          PanelSeparator {
-            visible: root.displays.length > 1
-            foreground: root.bar.foreground
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(10)
-            visible: root.displays.length > 1
-
-            PanelSectionHeader {
-              text: "DISPLAYS"
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
-            }
-
-            // One pill per display: ticked when on, highlighted when focused;
-            // a click turns it on or off.
-            Row {
-              id: displaysRow
-              width: parent.width
-              spacing: Style.spacing.xs
-
-              Repeater {
-                model: root.displays
-
-                DisplayPill {
-                  required property var modelData
-                  required property int index
-
-                  display: modelData
-                  pillIndex: index
-                  width: (displaysRow.width - displaysRow.spacing * (root.displays.length - 1)) / root.displays.length
-                }
-              }
-            }
-          }
-
           Item {
             width: parent.width
             height: Style.space(4)
@@ -1617,31 +1586,6 @@ Panel {
     }
   }
 
-  component TargetPill: Button {
-    id: targetPill
-    required property string monitorName
-    required property int pillIndex
-
-    text: monitorName
-    fontSize: Style.font.caption
-    foreground: root.bar.foreground
-    fontFamily: root.bar.fontFamily
-    horizontalPadding: Style.spacing.sm
-    verticalPadding: Style.spacing.controlPaddingY
-    bordered: true
-
-    active: root.targetMonitor === monitorName
-    hasCursor: root.cursorActive && root.focusSection === "target" && root.selectedIndex === pillIndex
-
-    onClicked: root.targetMonitor = monitorName
-    onHovered: function(isHovered) {
-      if (!isHovered || root.reflowingText) return
-      root.cursorActive = true
-      root.focusSection = "target"
-      root.selectedIndex = targetPill.pillIndex
-    }
-  }
-
   // One "looks like" desktop size: the size, then its scale.
   component ScaleOption: CursorSurface {
     id: scaleOption
@@ -1714,32 +1658,65 @@ Panel {
     }
   }
 
+  // A display: its name chooses it for LOOKS LIKE, REFRESH RATE and ARRANGE
+  // (highlighted when chosen); the tick or circle at its left turns it on or
+  // off. Clicking the name of one that's off turns it on.
   component DisplayPill: Button {
     id: displayPill
     required property var display
     required property int pillIndex
 
+    readonly property bool isOn: !!display && display.enabled
     // The last display on can't be turned off.
-    readonly property bool canToggle: display && (!display.enabled || root.enabledDisplayCount > 1)
+    readonly property bool canToggle: !!display && (!display.enabled || root.enabledDisplayCount > 1)
 
-    text: (display && display.enabled ? "󰄬  " : "") + (display ? display.name : "")
+    text: display ? display.name : ""
     fontSize: Style.font.caption
     foreground: root.bar.foreground
     fontFamily: root.bar.fontFamily
     horizontalPadding: Style.spacing.sm
     verticalPadding: Style.spacing.controlPaddingY
     bordered: true
-    opacity: canToggle ? 1.0 : 0.45
+    opacity: isOn ? 1.0 : 0.6
 
-    active: !!display && display.focused
-    hasCursor: root.cursorActive && root.focusSection === "monitors" && root.selectedIndex === pillIndex
+    active: isOn && root.targetMonitor === display.name
+    hasCursor: root.cursorActive && root.focusSection === "target" && root.selectedIndex === pillIndex
 
-    onClicked: if (canToggle) root.toggleDisplay(display.name, display.enabled)
+    onClicked: {
+      if (!display) return
+      if (isOn) root.targetMonitor = display.name
+      else root.toggleDisplay(display.name, false)
+    }
     onHovered: function(isHovered) {
       if (!isHovered || root.reflowingText) return
       root.cursorActive = true
-      root.focusSection = "monitors"
+      root.focusSection = "target"
       root.selectedIndex = displayPill.pillIndex
+    }
+
+    // The on/off switch: a tick (on) or circle (off) at the pill's left end.
+    Text {
+      id: switchGlyph
+      z: 10
+      textFormat: Text.PlainText
+      text: displayPill.isOn ? "󰄬" : "󰄱"
+      color: root.bar.foreground
+      font.family: root.bar.fontFamily
+      font.pixelSize: Style.font.body
+      anchors.left: parent.left
+      anchors.leftMargin: root.insetFor(displayPill, Style.space(8))
+      anchors.verticalCenter: parent.verticalCenter
+    }
+
+    MouseArea {
+      z: 11
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      width: switchGlyph.x + switchGlyph.width + Style.space(6)
+      hoverEnabled: true
+      cursorShape: displayPill.canToggle ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+      onClicked: if (displayPill.canToggle) root.toggleDisplay(displayPill.display.name, displayPill.isOn)
     }
   }
 }
