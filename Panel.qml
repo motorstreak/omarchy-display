@@ -419,6 +419,118 @@ Panel {
   readonly property bool arrangeVisible: enabledNames.length > 1 && targetMonitor !== "" && targetMonitor !== anchorMonitor
   readonly property string targetSide: (targetInfo && arrangement[targetInfo.description]) || "right"
 
+  // ---- The map: each monitor on, as a rectangle its "looks like" size, where
+  // it is (hyprctl's layout positions). Drag one and let go: it snaps flush
+  // against the nearest edge of another (sharing at least mapMinShared of it,
+  // so the pointer can cross), lining up edges or centres when close, never
+  // overlapping. The places are saved as offsets from the anchor.
+  property var mapOverride: null
+  property bool mapDragging: false
+  readonly property real mapMinShared: 100
+
+  readonly property var mapRects: {
+    if (mapOverride) return mapOverride
+    var list = []
+    for (var i = 0; i < enabledNames.length; i++) {
+      var info = monitorInfo[enabledNames[i]]
+      if (!info || (info.mirrorOf && info.mirrorOf !== "none") || !(info.scale > 0)) continue
+      var w = info.width / info.scale
+      var h = info.height / info.scale
+      if ((info.transform || 0) % 2 === 1) { var t = w; w = h; h = t }
+      list.push({
+        name: info.name,
+        label: /^(eDP|LVDS|DSI)-/.test(info.name) ? "Laptop" : (info.model || info.name),
+        x: info.x, y: info.y, w: w, h: h
+      })
+    }
+    return list
+  }
+
+  readonly property var mapBounds: {
+    if (mapRects.length === 0) return { x: 0, y: 0, w: 1, h: 1 }
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    for (var i = 0; i < mapRects.length; i++) {
+      var r = mapRects[i]
+      x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y)
+      x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h)
+    }
+    return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) }
+  }
+
+  function overlapsAny(x, y, w, h, others) {
+    for (var i = 0; i < others.length; i++) {
+      var o = others[i]
+      if (x < o.x + o.w - 0.5 && x + w > o.x + 0.5 && y < o.y + o.h - 0.5 && y + h > o.y + 0.5) return true
+    }
+    return false
+  }
+
+  // A value pulled to the nearest of `targets` within `reach`.
+  function snapTo(v, targets, reach) {
+    var best = v, dist = reach
+    for (var i = 0; i < targets.length; i++) {
+      var d = Math.abs(v - targets[i])
+      if (d <= dist) { dist = d; best = targets[i] }
+    }
+    return best
+  }
+
+  // A rectangle let go at layout position (lx, ly): snapped, saved, applied.
+  function mapDrop(name, lx, ly, reach) {
+    var rects = mapRects
+    var me = null
+    var others = []
+    for (var i = 0; i < rects.length; i++) {
+      if (rects[i].name === name) me = rects[i]
+      else others.push(rects[i])
+    }
+    if (!me || others.length === 0) { mapOverride = rects.slice(); return }
+    var best = null, bestDist = Infinity
+    for (var j = 0; j < others.length; j++) {
+      var o = others[j]
+      var shared = Math.min(mapMinShared, me.h, o.h)
+      var y = Math.max(o.y - me.h + shared, Math.min(o.y + o.h - shared, ly))
+      y = snapTo(y, [o.y, o.y + o.h - me.h, o.y + (o.h - me.h) / 2], reach)
+      shared = Math.min(mapMinShared, me.w, o.w)
+      var x = Math.max(o.x - me.w + shared, Math.min(o.x + o.w - shared, lx))
+      x = snapTo(x, [o.x, o.x + o.w - me.w, o.x + (o.w - me.w) / 2], reach)
+      var candidates = [
+        { x: o.x - me.w, y: y }, { x: o.x + o.w, y: y },
+        { x: x, y: o.y - me.h }, { x: x, y: o.y + o.h }
+      ]
+      for (var c = 0; c < candidates.length; c++) {
+        var cand = candidates[c]
+        if (overlapsAny(cand.x, cand.y, me.w, me.h, others)) continue
+        var d = Math.hypot(cand.x - lx, cand.y - ly)
+        if (d < bestDist) { bestDist = d; best = cand }
+      }
+    }
+    if (!best) { mapOverride = rects.slice(); return }
+
+    var placed = []
+    for (var k = 0; k < rects.length; k++) {
+      var r = rects[k]
+      placed.push(r.name === name
+        ? { name: r.name, label: r.label, x: Math.round(best.x), y: Math.round(best.y), w: r.w, h: r.h }
+        : r)
+    }
+    mapOverride = placed
+
+    // Saved as offsets from the anchor (which may itself have been dragged).
+    var anchor = null
+    for (var a = 0; a < placed.length; a++) if (placed[a].name === anchorMonitor) anchor = placed[a]
+    if (!anchor) return
+    var items = []
+    for (var n = 0; n < placed.length; n++) {
+      var p = placed[n]
+      if (p.name === anchor.name || !/^[A-Za-z0-9._-]+$/.test(p.name)) continue
+      items.push("{ \"" + p.name + "\", " + Math.round(p.x - anchor.x) + ", " + Math.round(p.y - anchor.y) + " }")
+    }
+    actionProc.command = ["hyprctl", "eval",
+      "if display_scaling and display_scaling.place then display_scaling.place({ " + items.join(", ") + " }) end"]
+    if (!actionProc.running) actionProc.running = true
+  }
+
   function anchorLabel() {
     if (/^(eDP|LVDS|DSI)-/.test(anchorMonitor)) return "of the laptop"
     var info = monitorInfo[anchorMonitor]
@@ -650,6 +762,10 @@ Panel {
           var list = JSON.parse(String(text || "[]"))
           for (var i = 0; i < list.length; i++) info[list[i].name] = list[i]
         } catch (e) {}
+        // Not under a rectangle being dragged; a fresh layout replaces the
+        // places shown since the last drop.
+        if (root.mapDragging) return
+        root.mapOverride = null
         root.monitorInfo = info
         if (!info[root.targetMonitor]) {
           root.targetMonitor = ""
@@ -1243,9 +1359,10 @@ Panel {
               }
             }
 
-            // Where the chosen monitor sits, with more than one on.
+            // Where the monitors sit, with more than one on: drag them on the
+            // map, or pick a side for the chosen one below it.
             Item {
-              visible: root.arrangeVisible
+              visible: root.enabledNames.length > 1
               width: parent.width
               implicitHeight: Math.max(arrangeHeader.implicitHeight, arrangeHint.implicitHeight) + Style.space(4)
 
@@ -1261,7 +1378,7 @@ Panel {
               Text {
                 id: arrangeHint
                 textFormat: Text.PlainText
-                text: root.anchorLabel()
+                text: root.arrangeVisible ? root.anchorLabel() : "drag to arrange"
                 color: Qt.darker(root.bar.foreground, 1.4)
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.caption
@@ -1269,6 +1386,86 @@ Panel {
                 anchors.right: parent.right
                 anchors.rightMargin: Style.space(6)
                 anchors.bottom: parent.bottom
+              }
+            }
+
+            Item {
+              id: arrangeMap
+              visible: root.enabledNames.length > 1 && root.mapRects.length > 1
+              width: parent.width
+              readonly property real pad: Style.space(8)
+              readonly property real maxHeight: Style.space(170)
+              readonly property real k: Math.min((width - 2 * pad) / root.mapBounds.w, (maxHeight - 2 * pad) / root.mapBounds.h)
+              readonly property real ox: (width - root.mapBounds.w * k) / 2
+              implicitHeight: root.mapBounds.h * k + 2 * pad
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.space(10)
+                color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.05)
+              }
+
+              Repeater {
+                model: root.mapRects
+
+                Rectangle {
+                  id: screenBox
+                  required property var modelData
+                  readonly property bool isTarget: modelData.name === root.targetMonitor
+
+                  x: arrangeMap.ox + (modelData.x - root.mapBounds.x) * arrangeMap.k
+                  y: arrangeMap.pad + (modelData.y - root.mapBounds.y) * arrangeMap.k
+                  width: Math.max(8, modelData.w * arrangeMap.k)
+                  height: Math.max(8, modelData.h * arrangeMap.k)
+                  radius: Style.space(4)
+                  z: dragArea.drag.active ? 10 : 1
+                  color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, isTarget ? 0.22 : 0.10)
+                  border.width: isTarget ? 2 : 1
+                  border.color: isTarget ? Color.accent
+                    : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.45)
+
+                  Text {
+                    anchors.centerIn: parent
+                    width: parent.width - Style.space(6)
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    textFormat: Text.PlainText
+                    text: screenBox.modelData.label
+                    color: root.bar.foreground
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: screenBox.isTarget
+                  }
+
+                  MouseArea {
+                    id: dragArea
+                    anchors.fill: parent
+                    cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                    drag.target: screenBox
+                    drag.threshold: 2
+                    drag.minimumX: 0
+                    drag.minimumY: 0
+                    drag.maximumX: arrangeMap.width - screenBox.width
+                    drag.maximumY: arrangeMap.height - screenBox.height
+                    onPressed: {
+                      root.targetMonitor = screenBox.modelData.name
+                      root.mapDragging = true
+                    }
+                    onReleased: {
+                      root.mapDragging = false
+                      if (screenBox.x === arrangeMap.ox + (screenBox.modelData.x - root.mapBounds.x) * arrangeMap.k
+                          && screenBox.y === arrangeMap.pad + (screenBox.modelData.y - root.mapBounds.y) * arrangeMap.k) return
+                      root.mapDrop(screenBox.modelData.name,
+                        root.mapBounds.x + (screenBox.x - arrangeMap.ox) / arrangeMap.k,
+                        root.mapBounds.y + (screenBox.y - arrangeMap.pad) / arrangeMap.k,
+                        Style.space(10) / arrangeMap.k)
+                    }
+                    onCanceled: {
+                      root.mapDragging = false
+                      root.mapOverride = root.mapRects.slice()
+                    }
+                  }
+                }
               }
             }
 

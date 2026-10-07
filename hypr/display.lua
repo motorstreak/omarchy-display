@@ -56,7 +56,9 @@ end
 
 -- Arrangement: each monitor's side of the anchor (the laptop panel when it's
 -- on, otherwise the first monitor without a side): "left", "right", "above" or
--- "below", by description, in ~/.local/state/omarchy-display/arrangement.
+-- "below", or an exact place dragged in the panel, "@dx,dy" (its top left
+-- corner from the anchor's, in layout pixels), by description, in
+-- ~/.local/state/omarchy-display/arrangement.
 -- None means right, after any others. Positions are worked out from the saved
 -- sizes and scales: left/right line up the bottoms (a laptop sits lower than a
 -- monitor beside it), above/below the centres; then shifted so the layout
@@ -71,6 +73,9 @@ local function read_arrangement()
     local desc, side = line:match("^(.-)\t(%a+)$")
     if desc and desc ~= "" and (side == "left" or side == "right" or side == "above" or side == "below") then
       sides[desc] = side
+    else
+      local d, dx, dy = line:match("^(.-)\t@(%-?%d+),(%-?%d+)$")
+      if d and d ~= "" then sides[d] = { tonumber(dx), tonumber(dy) } end
     end
   end
   f:close()
@@ -78,7 +83,13 @@ end
 
 local function write_arrangement()
   local lines = {}
-  for desc, side in pairs(sides) do table.insert(lines, desc .. "\t" .. side) end
+  for desc, side in pairs(sides) do
+    if type(side) == "table" then
+      table.insert(lines, string.format("%s\t@%d,%d", desc, side[1], side[2]))
+    else
+      table.insert(lines, desc .. "\t" .. side)
+    end
+  end
   table.sort(lines)
   os.execute("mkdir -p '" .. state_dir .. "'")
   local f = io.open(arrangement_file, "w")
@@ -123,8 +134,18 @@ local function layout()
   local aw, ah = logical(anchor.description)
   local pos = { [anchor.description] = { 0, 0 } }
   local left, right, top, bottom = 0, aw, 0, ah
+  -- Dragged places first; sides then go beyond everything placed.
   for _, m in ipairs(on) do
-    if m ~= anchor then
+    local side = sides[m.description]
+    if m ~= anchor and type(side) == "table" then
+      local w, h = logical(m.description)
+      pos[m.description] = { side[1], side[2] }
+      left, right = math.min(left, side[1]), math.max(right, side[1] + w)
+      top, bottom = math.min(top, side[2]), math.max(bottom, side[2] + h)
+    end
+  end
+  for _, m in ipairs(on) do
+    if m ~= anchor and type(sides[m.description]) ~= "table" then
       local w, h = logical(m.description)
       local side = sides[m.description] or "right"
       if side == "left" then
@@ -273,6 +294,22 @@ display_scaling = {
   end,
   -- Puts a monitor (by connector name) on a side of the anchor: "left",
   -- "right", "above", "below", or "auto" (right, after the others).
+  -- Exact places dragged in the panel: { { name, dx, dy }, ... }, each from the
+  -- anchor's top left corner in layout pixels.
+  place = function(list)
+    for _, item in ipairs(list or {}) do
+      for _, m in ipairs(hl.get_monitors()) do
+        if m.name == item[1] and m.description and m.description ~= ""
+            and tonumber(item[2]) and tonumber(item[3]) then
+          sides[m.description] = { math.floor(item[2] + 0.5), math.floor(item[3] + 0.5) }
+        end
+      end
+    end
+    write_arrangement()
+    corrections = 0
+    apply_layout()
+  end,
+
   arrange = function(name, side)
     for _, m in ipairs(hl.get_monitors()) do
       if m.name == name and m.description and m.description ~= "" then
