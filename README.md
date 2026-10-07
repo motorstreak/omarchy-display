@@ -79,11 +79,15 @@ that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 REFRESH RATE lists the rates the chosen monitor offers at its resolution and
 saves the one you pick with its mode, like the scale.
 
-With more than one display on, ARRANGE puts the chosen monitor left, right,
-above or below the laptop panel (or, without one, the first monitor). The side
-is saved per monitor in `~/.local/state/omarchy-display/arrangement` and the
-positions are worked out from each monitor's size and scale: beside the laptop
-the bottoms line up, above or below the centres do. They're applied again when
+With more than one display on, ARRANGE shows the displays as rectangles, each
+the size it looks like. Drag one and let go: it snaps flush against the
+nearest edge of another (never overlapping, always sharing enough edge for the
+pointer to cross), lining up edges or centres when it's close. The buttons
+below put the chosen monitor left, right, above or below the laptop panel (or,
+without one, the first monitor) instead: beside the laptop the bottoms line
+up, above or below the centres do. Either is saved per monitor in
+`~/.local/state/omarchy-display/arrangement` (a side, or `@x,y` from the laptop
+panel's corner). They're applied again when
 a monitor is plugged in or out or its scale changes.
 The laptop panel's scale is also written to `omarchy_monitor_scale` (and
 `omarchy_gdk_scale`) in `monitors.lua`, as Omarchy's own scale keys do:
