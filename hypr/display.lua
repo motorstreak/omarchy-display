@@ -64,12 +64,42 @@ local function usable(m)
     and (m.width or 0) > 0 and (m.height or 0) > 0
 end
 
+-- Omarchy's lid script (omarchy-hyprland-monitor-clamshell) turns the laptop
+-- panel back on at the scale in monitors.lua's `omarchy_monitor_scale`, and
+-- corrects the panel to it whenever they differ, so a scale picked here was
+-- lost on opening the lid. So the laptop panel's scale is kept there too, the
+-- way Omarchy's own scale keys do it (GDK_SCALE: the nearest whole number).
+local monitors_lua = os.getenv("HOME") .. "/.config/hypr/monitors.lua"
+
+local function internal(m)
+  return m.name and (m.name:match("^eDP%-") or m.name:match("^LVDS%-") or m.name:match("^DSI%-")) ~= nil
+end
+
+local function keep_omarchy_scale(scale)
+  local f = io.open(monitors_lua)
+  if not f then return end
+  -- (A newline in front, so the first line can match too.)
+  local content = "\n" .. f:read("a")
+  f:close()
+  local value = string.format("%.7g", scale)
+  local updated, n = content:gsub("\nlocal omarchy_monitor_scale = [^\n]*", "\nlocal omarchy_monitor_scale = " .. value, 1)
+  if n == 0 then return end
+  updated = updated:gsub("\nlocal omarchy_gdk_scale = [^\n]*",
+    "\nlocal omarchy_gdk_scale = " .. string.format("%d", math.floor(scale + 0.5)), 1)
+  if updated == content then return end
+  f = io.open(monitors_lua, "w")
+  if not f then return end
+  f:write(updated:sub(2))
+  f:close()
+end
+
 -- Saves the monitors as they are now.
 local function record()
   for _, m in ipairs(hl.get_monitors()) do
     if usable(m) then
       if not saved[m.description] then table.insert(order, m.description) end
       saved[m.description] = { mode = mode_of(m), scale = m.scale, transform = m.transform or 0 }
+      if internal(m) then keep_omarchy_scale(m.scale) end
     end
   end
   write_state()
