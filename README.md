@@ -76,6 +76,12 @@ saves each monitor's mode, scale and rotation to
 `~/.local/state/omarchy-display/monitors`, and on every config load it turns
 that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 (laptop display off, mirroring) load after `monitors.lua`, so they still win.
+With more than one display on, ARRANGE puts the chosen monitor left, right,
+above or below the laptop panel (or, without one, the first monitor). The side
+is saved per monitor in `~/.local/state/omarchy-display/arrangement` and the
+positions are worked out from each monitor's size and scale: beside the laptop
+the bottoms line up, above or below the centres do. They're applied again when
+a monitor is plugged in or out or its scale changes.
 The laptop panel's scale is also written to `omarchy_monitor_scale` (and
 `omarchy_gdk_scale`) in `monitors.lua`, as Omarchy's own scale keys do:
 Omarchy's lid script turns the panel back on at that scale.
@@ -94,7 +100,8 @@ package into `~/.local/share/fonts` (the full package conflicts with the
 basic one Omarchy depends on). Ghostty runs one process for all its windows: quit it fully to see the
 change. Crisp removes both files.
 
-A saved rule replaces any rule you wrote for the same monitor above it. If you
+A saved rule (mode, scale, rotation and position) replaces any rule you wrote
+for the same monitor above it. If you
 keep your own rule for a monitor (to set a position or VRR, say), delete that
 monitor's line from the state file, or put your rule after the block.
 
