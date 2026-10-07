@@ -256,6 +256,21 @@ hl.on("monitor.added", function() record(); apply_layout_soon() end)
 hl.on("monitor.removed", apply_layout_soon)
 
 display_scaling = {
+  -- Sets a monitor's mode (by connector name), e.g. "3840x2160@59.94": the
+  -- refresh rate; its scale, rotation and place stay.
+  set_mode = function(name, mode)
+    if type(mode) ~= "string" or not mode:match("^%d+x%d+@[%d.]+$") then return end
+    for _, m in ipairs(hl.get_monitors()) do
+      if m.name == name and usable(m) then
+        if not saved[m.description] then table.insert(order, m.description) end
+        saved[m.description] = { mode = mode, scale = m.scale, transform = m.transform or 0 }
+        -- Saved as asked (record() would read the monitor before the mode applies).
+        write_state()
+        rule_for(m.description, layout()[m.description])
+        return
+      end
+    end
+  end,
   -- Puts a monitor (by connector name) on a side of the anchor: "left",
   -- "right", "above", "below", or "auto" (right, after the others).
   arrange = function(name, side)

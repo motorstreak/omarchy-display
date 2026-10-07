@@ -89,6 +89,7 @@ Panel {
     list.push("rendering")
     if (enabledNames.length > 1) list.push("target")
     list.push("scale")
+    if (refreshOptions.length > 1) list.push("refresh")
     if (arrangeVisible) list.push("arrange")
     if (displays.length > 1) list.push("monitors")
     return list
@@ -101,6 +102,7 @@ Panel {
     if (section === "scale") return scaleValues.length
     if (section === "target") return enabledNames.length
     if (section === "arrange") return arrangeOptions.length
+    if (section === "refresh") return refreshOptions.length
     if (section === "monitors") return displays.length
     return 0
   }
@@ -108,7 +110,7 @@ Panel {
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
     return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
-      || section === "arrange"
+      || section === "arrange" || section === "refresh"
   }
 
   function sectionFirstIndex(section) {
@@ -159,6 +161,10 @@ Panel {
   // everywhere else, no-op because adjustBrightness handles horizontal motion
   // on the brightness slider.
   function moveCursorH(delta) {
+    if (focusSection === "refresh") {
+      selectedIndex = Math.max(0, Math.min(refreshOptions.length - 1, selectedIndex + delta))
+      return
+    }
     if (focusSection === "arrange") {
       selectedIndex = Math.max(0, Math.min(arrangeOptions.length - 1, selectedIndex + delta))
       return
@@ -195,6 +201,10 @@ Panel {
     }
     if (focusSection === "scale" && selectedIndex >= 0 && selectedIndex < scaleValues.length) {
       setScale(scaleValues[selectedIndex].exact)
+      return
+    }
+    if (focusSection === "refresh" && selectedIndex >= 0 && selectedIndex < refreshOptions.length) {
+      setRefresh(refreshOptions[selectedIndex])
       return
     }
     if (focusSection === "arrange" && selectedIndex >= 0 && selectedIndex < arrangeOptions.length) {
@@ -349,6 +359,40 @@ Panel {
     if (enabled && root.enabledDisplayCount <= 1) return
 
     actionProc.command = ["hyprctl", "keyword", "monitor", name + (enabled ? ",disable" : ",preferred,auto,auto")]
+    if (!actionProc.running) actionProc.running = true
+  }
+
+  // ---- Refresh rate: the rates the targeted monitor offers at its current
+  // resolution (hyprctl's availableModes), fastest first, one per rate.
+  readonly property var refreshOptions: {
+    if (!targetInfo || !targetInfo.availableModes) return []
+    var prefix = targetInfo.width + "x" + targetInfo.height + "@"
+    var seen = {}
+    var list = []
+    for (var i = 0; i < targetInfo.availableModes.length; i++) {
+      var mode = String(targetInfo.availableModes[i])
+      if (mode.indexOf(prefix) !== 0) continue
+      var rate = parseFloat(mode.slice(prefix.length))
+      if (!isFinite(rate)) continue
+      var key = rate.toFixed(2)
+      if (seen[key]) continue
+      seen[key] = true
+      list.push({ rate: rate, key: key, label: Number(key) % 1 === 0 ? String(Number(key)) : key })
+    }
+    list.sort(function(a, b) { return b.rate - a.rate })
+    return list
+  }
+  readonly property int refreshColumns: refreshOptions.length <= 4 ? Math.max(1, refreshOptions.length) : (refreshOptions.length <= 6 ? 3 : 4)
+
+  function refreshIsCurrent(option) {
+    return !!targetInfo && Math.abs(Number(targetInfo.refreshRate) - option.rate) < 0.006
+  }
+
+  function setRefresh(option) {
+    if (!targetInfo || !/^[A-Za-z0-9._-]+$/.test(targetMonitor)) return
+    var mode = targetInfo.width + "x" + targetInfo.height + "@" + option.key
+    actionProc.command = ["hyprctl", "eval",
+      "if display_scaling and display_scaling.set_mode then display_scaling.set_mode(\"" + targetMonitor + "\", \"" + mode + "\") end"]
     if (!actionProc.running) actionProc.running = true
   }
 
@@ -1150,6 +1194,55 @@ Panel {
               }
             }
 
+            // Refresh rates at this resolution, when there's a choice.
+            Item {
+              visible: root.refreshOptions.length > 1
+              width: parent.width
+              implicitHeight: refreshHeader.implicitHeight + Style.space(4)
+
+              PanelSectionHeader {
+                id: refreshHeader
+                text: "REFRESH RATE"
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                text: "Hz"
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(6)
+                anchors.bottom: parent.bottom
+              }
+            }
+
+            Grid {
+              id: refreshRow
+              visible: root.refreshOptions.length > 1
+              width: parent.width
+              columns: root.refreshColumns
+              spacing: Style.spacing.xs
+
+              Repeater {
+                model: root.refreshOptions
+
+                RefreshPill {
+                  required property var modelData
+                  required property int index
+
+                  option: modelData
+                  pillIndex: index
+                  width: (refreshRow.width - refreshRow.spacing * (refreshRow.columns - 1)) / refreshRow.columns
+                }
+              }
+            }
+
             // Where the chosen monitor sits, with more than one on.
             Item {
               visible: root.arrangeVisible
@@ -1265,6 +1358,31 @@ Panel {
     }
   }
 
+  component RefreshPill: Button {
+    id: refreshPill
+    required property var option
+    required property int pillIndex
+
+    text: option.label
+    fontSize: Style.font.caption
+    foreground: root.bar.foreground
+    fontFamily: root.bar.fontFamily
+    horizontalPadding: Style.spacing.sm
+    verticalPadding: Style.spacing.controlPaddingY
+    bordered: true
+
+    active: root.refreshIsCurrent(option)
+    hasCursor: root.cursorActive && root.focusSection === "refresh" && root.selectedIndex === pillIndex
+
+    onClicked: root.setRefresh(option)
+    onHovered: function(isHovered) {
+      if (!isHovered || root.reflowingText) return
+      root.cursorActive = true
+      root.focusSection = "refresh"
+      root.selectedIndex = refreshPill.pillIndex
+    }
+  }
+
   component ArrangePill: Button {
     id: arrangePill
     required property var side
@@ -1332,7 +1450,9 @@ Panel {
     outline: true
     implicitHeight: optionLabels.implicitHeight + Style.spacing.lg
 
-    Column {
+    // One line: the size on the left, its scale on the right (with "native"
+    // or "sharpest" in front where it applies), so a long list stays short.
+    Item {
       id: optionLabels
       anchors.left: parent.left
       anchors.right: parent.right
@@ -1341,9 +1461,10 @@ Panel {
       // window rounding, which can make it a full pill.
       anchors.leftMargin: root.insetFor(scaleOption)
       anchors.rightMargin: root.insetFor(scaleOption)
-      spacing: Style.space(1)
+      implicitHeight: Math.max(sizeText.implicitHeight, factorText.implicitHeight)
 
       Text {
+        id: sizeText
         textFormat: Text.PlainText
         text: scaleOption.option.width + " × " + scaleOption.option.height
         color: root.bar.foreground
@@ -1351,19 +1472,23 @@ Panel {
         font.pixelSize: Style.font.body
         font.bold: scaleOption.isActive
         elide: Text.ElideRight
-        width: parent.width
+        anchors.left: parent.left
+        anchors.right: factorText.left
+        anchors.rightMargin: Style.space(4)
+        anchors.verticalCenter: parent.verticalCenter
       }
 
       Text {
+        id: factorText
         textFormat: Text.PlainText
-        text: scaleOption.option.scale + "×"
-          + (scaleOption.option.exact === 1 ? " · native" : "")
-          + (scaleOption.option.exact === 2 ? " · sharpest" : "")
+        text: (scaleOption.option.exact === 1 ? "native " : "")
+          + (scaleOption.option.exact === 2 ? "sharpest " : "")
+          + scaleOption.option.scale + "×"
         color: Qt.darker(root.bar.foreground, 1.4)
         font.family: root.bar.fontFamily
         font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
-        width: parent.width
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
       }
     }
 
