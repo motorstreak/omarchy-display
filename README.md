@@ -76,6 +76,9 @@ saves each monitor's mode, scale and rotation to
 `~/.local/state/omarchy-display/monitors`, and on every config load it turns
 that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 (laptop display off, mirroring) load after `monitors.lua`, so they still win.
+REFRESH RATE lists the rates the chosen monitor offers at its resolution and
+saves the one you pick with its mode, like the scale.
+
 With more than one display on, ARRANGE puts the chosen monitor left, right,
 above or below the laptop panel (or, without one, the first monitor). The side
 is saved per monitor in `~/.local/state/omarchy-display/arrangement` and the
