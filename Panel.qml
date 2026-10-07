@@ -89,6 +89,7 @@ Panel {
     list.push("rendering")
     if (enabledNames.length > 1) list.push("target")
     list.push("scale")
+    if (arrangeVisible) list.push("arrange")
     if (displays.length > 1) list.push("monitors")
     return list
   }
@@ -99,6 +100,7 @@ Panel {
     if (section === "rendering") return textModes.length
     if (section === "scale") return scaleValues.length
     if (section === "target") return enabledNames.length
+    if (section === "arrange") return arrangeOptions.length
     if (section === "monitors") return displays.length
     return 0
   }
@@ -106,6 +108,7 @@ Panel {
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
     return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
+      || section === "arrange"
   }
 
   function sectionFirstIndex(section) {
@@ -156,6 +159,10 @@ Panel {
   // everywhere else, no-op because adjustBrightness handles horizontal motion
   // on the brightness slider.
   function moveCursorH(delta) {
+    if (focusSection === "arrange") {
+      selectedIndex = Math.max(0, Math.min(arrangeOptions.length - 1, selectedIndex + delta))
+      return
+    }
     if (focusSection === "rendering") {
       selectedIndex = Math.max(0, Math.min(textModes.length - 1, selectedIndex + delta))
       return
@@ -188,6 +195,10 @@ Panel {
     }
     if (focusSection === "scale" && selectedIndex >= 0 && selectedIndex < scaleValues.length) {
       setScale(scaleValues[selectedIndex].exact)
+      return
+    }
+    if (focusSection === "arrange" && selectedIndex >= 0 && selectedIndex < arrangeOptions.length) {
+      arrange(arrangeOptions[selectedIndex].id)
       return
     }
     if (focusSection === "monitors" && selectedIndex >= 0 && selectedIndex < displays.length) {
@@ -281,6 +292,7 @@ Panel {
     if (!stateProc.running) stateProc.running = true
     if (!textModeProc.running) textModeProc.running = true
     if (!monitorsProc.running) monitorsProc.running = true
+    if (!arrangementProc.running) arrangementProc.running = true
   }
 
   function setBrightness(value) {
@@ -338,6 +350,59 @@ Panel {
 
     actionProc.command = ["hyprctl", "keyword", "monitor", name + (enabled ? ",disable" : ",preferred,auto,auto")]
     if (!actionProc.running) actionProc.running = true
+  }
+
+  // ---- Arrangement (hypr/display.lua): each monitor's side of the anchor, the
+  // laptop panel when it's on (else the first monitor without a side). From
+  // ~/.local/state/omarchy-display/arrangement, by monitor description.
+  readonly property var arrangeOptions: [
+    { id: "left", label: "Left" },
+    { id: "right", label: "Right" },
+    { id: "above", label: "Above" },
+    { id: "below", label: "Below" }
+  ]
+  property var arrangement: ({})
+  readonly property string anchorMonitor: {
+    var names = enabledNames.slice().sort()
+    for (var i = 0; i < names.length; i++)
+      if (/^(eDP|LVDS|DSI)-/.test(names[i])) return names[i]
+    for (var j = 0; j < names.length; j++) {
+      var info = monitorInfo[names[j]]
+      if (info && !arrangement[info.description]) return names[j]
+    }
+    return names.length ? names[0] : ""
+  }
+  readonly property bool arrangeVisible: enabledNames.length > 1 && targetMonitor !== "" && targetMonitor !== anchorMonitor
+  readonly property string targetSide: (targetInfo && arrangement[targetInfo.description]) || "right"
+
+  function anchorLabel() {
+    if (/^(eDP|LVDS|DSI)-/.test(anchorMonitor)) return "of the laptop"
+    var info = monitorInfo[anchorMonitor]
+    return "of " + (info && info.model ? info.model : anchorMonitor)
+  }
+
+  function arrange(side) {
+    if (!/^[A-Za-z0-9._-]+$/.test(targetMonitor) || !/^(left|right|above|below)$/.test(side)) return
+    actionProc.command = ["hyprctl", "eval",
+      "if display_scaling and display_scaling.arrange then display_scaling.arrange(\"" + targetMonitor + "\", \"" + side + "\") end"]
+    if (!actionProc.running) actionProc.running = true
+  }
+
+  Process {
+    id: arrangementProc
+    command: ["sh", "-c", "cat \"${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-display/arrangement\" 2>/dev/null"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var map = {}
+        var lines = String(text || "").split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          var tab = lines[i].lastIndexOf("\t")
+          if (tab > 0) map[lines[i].slice(0, tab)] = lines[i].slice(tab + 1).trim()
+        }
+        root.arrangement = map
+      }
+    }
   }
 
   // Text inset inside a highlighted row: at least `min` (Omarchy's margin, for
@@ -1084,6 +1149,55 @@ Panel {
                 }
               }
             }
+
+            // Where the chosen monitor sits, with more than one on.
+            Item {
+              visible: root.arrangeVisible
+              width: parent.width
+              implicitHeight: Math.max(arrangeHeader.implicitHeight, arrangeHint.implicitHeight) + Style.space(4)
+
+              PanelSectionHeader {
+                id: arrangeHeader
+                text: "ARRANGE"
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+              }
+
+              Text {
+                id: arrangeHint
+                textFormat: Text.PlainText
+                text: root.anchorLabel()
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(6)
+                anchors.bottom: parent.bottom
+              }
+            }
+
+            Row {
+              id: arrangeRow
+              visible: root.arrangeVisible
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Repeater {
+                model: root.arrangeOptions
+
+                ArrangePill {
+                  required property var modelData
+                  required property int index
+
+                  side: modelData
+                  pillIndex: index
+                  width: (arrangeRow.width - arrangeRow.spacing * (root.arrangeOptions.length - 1)) / root.arrangeOptions.length
+                }
+              }
+            }
           }
 
           // ---------- Monitors ----------
@@ -1148,6 +1262,31 @@ Panel {
       root.cursorActive = true
       root.focusSection = "rendering"
       root.selectedIndex = modePill.pillIndex
+    }
+  }
+
+  component ArrangePill: Button {
+    id: arrangePill
+    required property var side
+    required property int pillIndex
+
+    text: side.label
+    fontSize: Style.font.caption
+    foreground: root.bar.foreground
+    fontFamily: root.bar.fontFamily
+    horizontalPadding: Style.spacing.sm
+    verticalPadding: Style.spacing.controlPaddingY
+    bordered: true
+
+    active: root.targetSide === side.id
+    hasCursor: root.cursorActive && root.focusSection === "arrange" && root.selectedIndex === pillIndex
+
+    onClicked: root.arrange(side.id)
+    onHovered: function(isHovered) {
+      if (!isHovered || root.reflowingText) return
+      root.cursorActive = true
+      root.focusSection = "arrange"
+      root.selectedIndex = arrangePill.pillIndex
     }
   }
 

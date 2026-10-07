@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.motorstreak.display",
   "name": "Display",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "author": "Navin Samuel",
   "description": "Omarchy's Display panel with a \"looks like\" resolution picker and a scale remembered per monitor.",
   "kinds": [
