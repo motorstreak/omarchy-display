@@ -340,6 +340,15 @@ Panel {
     if (!actionProc.running) actionProc.running = true
   }
 
+  // Text inset inside a highlighted row: at least `min` (Omarchy's margin, for
+  // its small rounding), more as the rounding grows, so the text stays clear
+  // of the curve (three quarters of the end's radius).
+  function insetFor(item, min) {
+    var floor = min === undefined ? Style.space(8) : min
+    var r = Math.min(Number(item.radius) || 0, (Number(item.height) || 0) / 2)
+    return Math.max(floor, Math.round(r * 0.75))
+  }
+
   // hypr/display.lua applies the scale to the monitor and remembers it.
   // Monitor names come from Hyprland but go into Lua source, so only plain
   // connector names pass.
@@ -1189,8 +1198,10 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(8)
-      anchors.rightMargin: Style.space(8)
+      // Clear of the highlight's rounded ends: its radius follows Hyprland's
+      // window rounding, which can make it a full pill.
+      anchors.leftMargin: root.insetFor(scaleOption)
+      anchors.rightMargin: root.insetFor(scaleOption)
       spacing: Style.space(1)
 
       Text {
@@ -1252,8 +1263,8 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(6)
-      anchors.rightMargin: Style.space(6)
+      anchors.leftMargin: root.insetFor(monitorRow, Style.space(6))
+      anchors.rightMargin: root.insetFor(monitorRow, Style.space(6))
       spacing: Style.space(8)
 
       Text {
