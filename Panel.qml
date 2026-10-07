@@ -37,8 +37,8 @@ Panel {
   //   "scale"      - 6 Button scale presets; treated as a single
   //                  horizontal row from j/k's perspective. h/l moves
   //                  between presets, identical to bluetooth's header.
-  //   "monitors"   - vertical display row list for enabling/disabling displays;
-  //                  j/k walks each row.
+  //   "monitors"   - one row of display pills for turning displays on and off;
+  //                  h/l moves along it.
   // Mouse hover on a target updates root state via the components' `hovered`
   // signal so keyboard cursor and pointer share one highlight.
   //   "target"     - which monitor LOOKS LIKE applies to; one row of pills,
@@ -110,7 +110,7 @@ Panel {
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
     return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
-      || section === "arrange" || section === "refresh"
+      || section === "arrange" || section === "refresh" || section === "monitors"
   }
 
   function sectionFirstIndex(section) {
@@ -161,6 +161,10 @@ Panel {
   // everywhere else, no-op because adjustBrightness handles horizontal motion
   // on the brightness slider.
   function moveCursorH(delta) {
+    if (focusSection === "monitors") {
+      selectedIndex = Math.max(0, Math.min(displays.length - 1, selectedIndex + delta))
+      return
+    }
     if (focusSection === "refresh") {
       selectedIndex = Math.max(0, Math.min(refreshOptions.length - 1, selectedIndex + delta))
       return
@@ -1507,16 +1511,24 @@ Panel {
               fontFamily: root.bar.fontFamily
             }
 
-            Repeater {
-              model: root.displays
+            // One pill per display: ticked when on, highlighted when focused;
+            // a click turns it on or off.
+            Row {
+              id: displaysRow
+              width: parent.width
+              spacing: Style.spacing.xs
 
-              MonitorRow {
-                required property var modelData
-                required property int index
+              Repeater {
+                model: root.displays
 
-                width: panelColumn.width
-                display: modelData
-                rowIndex: index
+                DisplayPill {
+                  required property var modelData
+                  required property int index
+
+                  display: modelData
+                  pillIndex: index
+                  width: (displaysRow.width - displaysRow.spacing * (root.displays.length - 1)) / root.displays.length
+                }
               }
             }
           }
@@ -1702,75 +1714,32 @@ Panel {
     }
   }
 
-  component MonitorRow: CursorSurface {
-    id: monitorRow
+  component DisplayPill: Button {
+    id: displayPill
     required property var display
-    required property int rowIndex
+    required property int pillIndex
 
-    readonly property bool isFocused: display && display.focused
+    // The last display on can't be turned off.
     readonly property bool canToggle: display && (!display.enabled || root.enabledDisplayCount > 1)
 
-    hasCursor: root.cursorActive && root.focusSection === "monitors" && root.selectedIndex === rowIndex
-    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(monitorRow)
-    current: isFocused
+    text: (display && display.enabled ? "󰄬  " : "") + (display ? display.name : "")
+    fontSize: Style.font.caption
     foreground: root.bar.foreground
-    fill: Style.hoverFillFor(root.bar.foreground, Color.accent)
-    currentFill: Style.selectedFillFor(root.bar.foreground, Color.accent)
-    implicitHeight: monitorInner.implicitHeight + Style.spacing.xl
+    fontFamily: root.bar.fontFamily
+    horizontalPadding: Style.spacing.sm
+    verticalPadding: Style.spacing.controlPaddingY
+    bordered: true
     opacity: canToggle ? 1.0 : 0.45
 
-    Row {
-      id: monitorInner
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: root.insetFor(monitorRow, Style.space(6))
-      anchors.rightMargin: root.insetFor(monitorRow, Style.space(6))
-      spacing: Style.space(8)
+    active: !!display && display.focused
+    hasCursor: root.cursorActive && root.focusSection === "monitors" && root.selectedIndex === pillIndex
 
-      Text {
-        text: "󰍹"
-        color: root.bar.foreground
-        font.family: root.bar.fontFamily
-        font.pixelSize: Style.font.title
-        width: Style.space(22)
-        horizontalAlignment: Text.AlignHCenter
-        anchors.verticalCenter: parent.verticalCenter
-      }
-
-      Text {
-        textFormat: Text.PlainText
-        text: monitorRow.display.name + (monitorRow.display.focused ? " · focused" : "")
-        color: root.bar.foreground
-        font.family: root.bar.fontFamily
-        font.pixelSize: Style.font.body
-        elide: Text.ElideRight
-        width: parent.width - Style.space(22) - Style.space(14) - Style.space(16)
-        anchors.verticalCenter: parent.verticalCenter
-      }
-
-      Text {
-        textFormat: Text.PlainText
-        text: monitorRow.display.enabled ? "󰄬" : ""
-        color: root.bar.foreground
-        font.family: root.bar.fontFamily
-        font.pixelSize: Style.font.subtitle
-        width: Style.space(14)
-        horizontalAlignment: Text.AlignRight
-        anchors.verticalCenter: parent.verticalCenter
-      }
-    }
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: monitorRow.canToggle ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
-        root.cursorActive = true
-        root.focusSection = "monitors"
-        root.selectedIndex = monitorRow.rowIndex
-      }
-      onClicked: if (monitorRow.canToggle) root.toggleDisplay(monitorRow.display.name, monitorRow.display.enabled)
+    onClicked: if (canToggle) root.toggleDisplay(display.name, display.enabled)
+    onHovered: function(isHovered) {
+      if (!isHovered || root.reflowingText) return
+      root.cursorActive = true
+      root.focusSection = "monitors"
+      root.selectedIndex = displayPill.pillIndex
     }
   }
 }
