@@ -149,4 +149,4 @@ end
 
 -- Super+Ctrl+D opens this panel instead of Omarchy's Display panel.
 hl.unbind("SUPER + CTRL + D")
-o.bind("SUPER + CTRL + D", "Display", "omarchy-shell shell toggle display")
+o.bind("SUPER + CTRL + D", "Display", "omarchy-shell shell toggle io.github.motorstreak.display")

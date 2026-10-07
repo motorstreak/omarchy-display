@@ -1,10 +1,12 @@
 #!/bin/bash
 
-# Usage: display-setup [install|remove]
+# Usage: display-setup [install|remove|status]
 #
 # Adds (or removes) the block at the end of ~/.config/hypr/monitors.lua that
 # loads this plugin's hypr/display.lua, which keeps a scale per monitor.
 # Hyprland reloads monitors.lua on save, so the change applies at once.
+# The panel runs install only once you've allowed it there. status prints
+# "installed", "missing" or "none" (no monitors.lua).
 
 set -e
 
@@ -13,13 +15,19 @@ plugin_dir="$(cd "$(dirname "$0")/.." && pwd)"
 start="-- omarchy-display-start"
 end="-- omarchy-display-end"
 
-[[ -f $monitors_lua ]] || exit 0
+if [[ ! -f $monitors_lua ]]; then
+  [[ ${1:-} == status ]] && echo none
+  exit 0
+fi
 
 # Each bar's panel runs this at once; let one at a time check and write.
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/omarchy-display-setup.lock"
 flock 9
 
 case "${1:-install}" in
+status)
+  if grep -qxF -e "$start" "$monitors_lua"; then echo installed; else echo missing; fi
+  ;;
 install)
   grep -qxF -e "$start" "$monitors_lua" && exit 0
   cat >>"$monitors_lua" <<EOF
@@ -48,7 +56,7 @@ remove)
   cat "$monitors_lua.tmp" >"$monitors_lua" && rm "$monitors_lua.tmp"
   ;;
 *)
-  echo "Usage: display-setup [install|remove]" >&2
+  echo "Usage: display-setup [install|remove|status]" >&2
   exit 1
   ;;
 esac

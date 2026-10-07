@@ -9,7 +9,7 @@ import "Model.js" as Model
 Panel {
   id: root
   moduleName: "display"
-  ipcTarget: "display"
+  ipcTarget: "io.github.motorstreak.display"
   manageIpc: false
 
   // manageIpc: false so this panel can own the single IpcHandler the target
@@ -346,8 +346,14 @@ Panel {
   function setScale(scale) {
     var value = Number(scale)
     if (!/^[A-Za-z0-9._-]+$/.test(targetMonitor) || !isFinite(value) || value <= 0) return
+    // Not set up (see setupNeeded): applied directly, for now only.
+    var name = "\"" + targetMonitor + "\""
+    var v = value.toPrecision(8)
     actionProc.command = ["hyprctl", "eval",
-      "if display_scaling then display_scaling.set(\"" + targetMonitor + "\", " + value.toPrecision(8) + ") end"]
+      "if display_scaling then display_scaling.set(" + name + ", " + v + ") else " +
+      "for _, m in ipairs(hl.get_monitors()) do if m.name == " + name + " then " +
+      "hl.monitor({ output = m.name, mode = string.format('%dx%d@%.2f', m.width, m.height, m.refresh_rate), " +
+      "position = 'auto', scale = " + v + ", transform = m.transform or 0 }) end end end"]
     if (!actionProc.running) actionProc.running = true
   }
 
@@ -419,9 +425,35 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // ---- Remembering scales: hypr/display.lua, loaded from a block at the end
+  // of ~/.config/hypr/monitors.lua. That file is yours, so the block is added
+  // only once you allow it here (asked until then; "Not now" until the shell
+  // restarts). Without it, "looks like" still applies a scale, unremembered.
+  property bool setupNeeded: false
+  property bool setupDismissed: false
+
+  function allowSetup() {
+    setupNeeded = false
+    setupInstallProc.running = true
+  }
+
+  Process {
+    id: setupStatusProc
+    command: [root.pluginDir + "/bin/display-setup", "status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.setupNeeded = String(text || "").trim() === "missing"
+    }
+  }
+
+  Process {
+    id: setupInstallProc
+    command: [root.pluginDir + "/bin/display-setup", "install"]
+    onRunningChanged: if (!running) setupStatusProc.running = true
+  }
+
   Component.onCompleted: {
-    // Adds the line to monitors.lua that loads hypr/display.lua (once).
-    Quickshell.execDetached([root.pluginDir + "/bin/display-setup", "install"])
+    setupStatusProc.running = true
     refresh()
   }
 
@@ -432,6 +464,7 @@ Panel {
     if (opened) {
       targetMonitor = ""
       refresh()
+      if (!setupStatusProc.running) setupStatusProc.running = true
       if (brightnessAvailable) {
         focusSection = "brightness"
         selectedIndex = -1
@@ -699,6 +732,63 @@ Panel {
                 font.letterSpacing: 1.2
                 elide: Text.ElideRight
                 width: parent.width
+              }
+            }
+          }
+
+          // ---------- Asked once: may it edit monitors.lua? ----------
+          PanelSeparator {
+            visible: root.setupNeeded && !root.setupDismissed
+            foreground: root.bar.foreground
+          }
+
+          Column {
+            visible: root.setupNeeded && !root.setupDismissed
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSectionHeader {
+              text: "REMEMBER EACH MONITOR'S SCALE?"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
+              text: "Adds a few lines to the end of ~/.config/hypr/monitors.lua, so each monitor keeps the scale you pick, and keeps Omarchy's laptop scale there in step. Until then, a scale you pick lasts until you log out."
+              color: Qt.darker(root.bar.foreground, 1.2)
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Row {
+              id: setupRow
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Button {
+                text: "Allow"
+                width: (setupRow.width - setupRow.spacing) / 2
+                fontSize: Style.font.caption
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                verticalPadding: Style.spacing.controlPaddingY
+                bordered: true
+                active: true
+                onClicked: root.allowSetup()
+              }
+
+              Button {
+                text: "Not now"
+                width: (setupRow.width - setupRow.spacing) / 2
+                fontSize: Style.font.caption
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                verticalPadding: Style.spacing.controlPaddingY
+                bordered: true
+                onClicked: root.setupDismissed = true
               }
             }
           }

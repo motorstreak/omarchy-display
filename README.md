@@ -38,12 +38,36 @@ omarchy plugin add https://github.com/motorstreak/omarchy-display.git --enable
 ```
 
 Then swap Omarchy's Display button for this one in `~/.config/omarchy/shell.json`:
-replace `{"id": "omarchy.monitor"}` in `bar.layout` with `{"id": "display"}`.
+replace `{"id": "omarchy.monitor"}` in `bar.layout` with `{"id": "io.github.motorstreak.display"}`.
 
-The first time the panel loads it adds a short block to the end of
+To remember a scale per monitor, the plugin needs a short block at the end of
 `~/.config/hypr/monitors.lua` (between `-- omarchy-display-start` and
-`-- omarchy-display-end`) that loads `hypr/display.lua`. Keep it last so the
-saved scales win over the rules above it.
+`-- omarchy-display-end`) that loads `hypr/display.lua`. It never adds it on
+its own: the panel asks first ("Remember each monitor's scale?"), or run
+`~/.config/omarchy/plugins/io.github.motorstreak.display/bin/display-setup install`. Keep the block
+last so the saved scales win over the rules above it. Without it, "looks like"
+still sets a scale, until you log out.
+
+Upgrading from a version before 0.5.0 (plugin id `display`): remove it first
+(see Remove, with `display` in place of the new id), then add it again as above.
+
+## What it changes, and what it needs
+
+Outside its own folder the plugin writes only:
+
+- `~/.config/hypr/monitors.lua`: the block above, and the
+  `omarchy_monitor_scale` / `omarchy_gdk_scale` values in it, only after you
+  allow it in the panel (or run `display-setup install`).
+- `~/.local/state/omarchy-display/`: the saved scales and text setting.
+- Text rendering, only when you pick Soft, Smooth or Heavy:
+  `~/.config/fontconfig/conf.d/60-smooth-text.conf`, `~/.config/ghostty/smooth-text`
+  and a `config-file = ?smooth-text` line in the Ghostty config. Crisp removes
+  the files.
+- Once set up, `Super + Ctrl + D` opens this panel instead of Omarchy's Display panel.
+
+It needs nothing beyond a standard Omarchy install: Hyprland, the Omarchy
+shell and its `omarchy-*` commands (brightness, text size), plus `flock`
+(util-linux) and `fontconfig`. No root access, services or downloads.
 
 ## How it works
 
@@ -52,6 +76,9 @@ saves each monitor's mode, scale and rotation to
 `~/.local/state/omarchy-display/monitors`, and on every config load it turns
 that file into `hl.monitor({ output = "desc:…" })` rules. Omarchy's toggles
 (laptop display off, mirroring) load after `monitors.lua`, so they still win.
+The laptop panel's scale is also written to `omarchy_monitor_scale` (and
+`omarchy_gdk_scale`) in `monitors.lua`, as Omarchy's own scale keys do:
+Omarchy's lid script turns the panel back on at that scale.
 
 Text rendering (`bin/display-text crisp|soft|smooth|heavy|status`) writes
 `~/.config/fontconfig/conf.d/60-smooth-text.conf` (autohinter, light hinting,
@@ -74,9 +101,9 @@ monitor's line from the state file, or put your rule after the block.
 ## Remove
 
 ```bash
-~/.config/omarchy/plugins/display/bin/display-text crisp
-~/.config/omarchy/plugins/display/bin/display-setup remove
-omarchy plugin remove display
+~/.config/omarchy/plugins/io.github.motorstreak.display/bin/display-text crisp
+~/.config/omarchy/plugins/io.github.motorstreak.display/bin/display-setup remove
+omarchy plugin remove io.github.motorstreak.display
 ```
 
 then put `{"id": "omarchy.monitor"}` back in the bar layout, and delete the
