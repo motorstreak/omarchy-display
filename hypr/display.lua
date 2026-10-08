@@ -122,7 +122,9 @@ local function layout()
       table.insert(on, m)
     end
   end
-  if #on == 0 then return {} end
+  -- A lone monitor is fine wherever it is: left alone (moving the laptop panel
+  -- just as another monitor is unplugged reconfigures it mid-hotplug).
+  if #on < 2 then return {} end
   table.sort(on, function(a, b) return a.name < b.name end)
   local anchor = nil
   for _, m in ipairs(on) do if internal(m) then anchor = m end end
@@ -199,7 +201,9 @@ local function apply_layout()
   return changed
 end
 
-local function apply_layout_soon()
+-- `wait` ms: 2 s after monitors come and go (they blink off and on as the lid
+-- closes or the system wakes; let Hyprland finish), less for a scale change.
+local function apply_layout_soon(wait)
   hl.timer(function()
     local now = os.time()
     if now - last_correction > 5 then corrections = 0 end
@@ -208,7 +212,7 @@ local function apply_layout_soon()
       corrections = corrections + 1
       last_correction = now
     end
-  end, { timeout = 200, type = "oneshot" })
+  end, { timeout = wait or 2000, type = "oneshot" })
 end
 
 local function usable(m)
@@ -272,9 +276,9 @@ for _, m in ipairs(hl.get_monitors()) do
 end
 if seeded then write_state() end
 
-hl.on("monitor.layout_changed", function() record(); apply_layout_soon() end)
-hl.on("monitor.added", function() record(); apply_layout_soon() end)
-hl.on("monitor.removed", apply_layout_soon)
+hl.on("monitor.layout_changed", function() record(); apply_layout_soon(2000) end)
+hl.on("monitor.added", function() record(); apply_layout_soon(2000) end)
+hl.on("monitor.removed", function() apply_layout_soon(2000) end)
 
 display_scaling = {
   -- Sets a monitor's mode (by connector name), e.g. "3840x2160@59.94": the
@@ -330,7 +334,7 @@ display_scaling = {
         rule_for(m.description, layout()[m.description])
         record()
         -- A new size moves the monitors around it.
-        apply_layout_soon()
+        apply_layout_soon(200)
         return
       end
     end
