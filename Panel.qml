@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 Panel {
@@ -1437,7 +1438,7 @@ Panel {
                   z: dragArea.drag.active ? 10 : 1
                   color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, isTarget ? 0.22 : 0.10)
                   border.width: isTarget ? 2 : 1
-                  border.color: isTarget ? Color.accent
+                  border.color: isTarget ? Commons.Color.accent
                     : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.45)
 
                   Text {
@@ -1602,8 +1603,8 @@ Panel {
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(scaleOption)
     current: isActive
     foreground: root.bar.foreground
-    fill: Style.hoverFillFor(root.bar.foreground, Color.accent)
-    currentFill: Style.selectedFillFor(root.bar.foreground, Color.accent)
+    fill: Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+    currentFill: Style.selectedFillFor(root.bar.foreground, Commons.Color.accent)
     outline: true
     implicitHeight: optionLabels.implicitHeight + Style.spacing.lg
 
