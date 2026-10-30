@@ -26,6 +26,13 @@ Panel {
   // A display whose brightness can't be set (no DDC/CI): the slider dims it in
   // software instead, on its own (bin/display-dim).
   property bool softBrightness: false
+  // The focused display is external and answers DDC/CI (its own brightness),
+  // and whether it's set to software brightness anyway (display-dim soft): a
+  // switch for monitors that take the brightness but don't show it.
+  property bool externalFocused: false
+  property bool hardwareBrightness: false
+  property bool softForced: false
+  readonly property bool softSwitchShown: externalFocused && (hardwareBrightness || softForced)
   readonly property string dimScript: String(Qt.resolvedUrl("bin/display-dim")).replace(/^file:\/\//, "")
   property string internalMonitor: ""
   property string externalMonitor: ""
@@ -122,6 +129,7 @@ Panel {
   readonly property var visibleSections: {
     var list = []
     if (brightnessAvailable) list.push("brightness")
+    if (softSwitchShown) list.push("softbright")
     if (macExtraShown) list.push("extra")
     list.push("textsize")
     list.push("rendering")
@@ -141,14 +149,14 @@ Panel {
     if (section === "target") return displays.length
     if (section === "arrange") return arrangeOptions.length
     if (section === "refresh") return refreshOptions.length
-    if (section === "extra" || section === "mac") return 1
+    if (section === "extra" || section === "mac" || section === "softbright") return 1
     return 0
   }
 
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
     return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
-      || section === "arrange" || section === "refresh" || section === "extra" || section === "mac"
+      || section === "arrange" || section === "refresh" || section === "extra" || section === "mac" || section === "softbright"
   }
 
   function sectionFirstIndex(section) {
@@ -232,6 +240,10 @@ Panel {
   }
 
   function activateCursor() {
+    if (focusSection === "softbright") {
+      toggleSoftBrightness()
+      return
+    }
     if (focusSection === "extra") {
       toggleMacExtra()
       return
@@ -353,6 +365,18 @@ Panel {
     if (!macStateProc.running) macStateProc.running = true
     if (!macFullPanelProc.running) macFullPanelProc.running = true
     root.askMacExtra()
+  }
+
+  // Software brightness for the focused display, or back to its own. Off, its
+  // software level goes back to full, so nothing stays dimmed out of sight.
+  function toggleSoftBrightness() {
+    var name = root.focusedMonitor
+    if (!name || actionProc.running) return
+    root.softForced = !root.softForced
+    actionProc.command = root.softForced
+      ? [root.dimScript, "soft", name, "on"]
+      : ["sh", "-c", "\"$0\" soft \"$1\" off && \"$0\" set \"$1\" 100", root.dimScript, name]
+    actionProc.running = true
   }
 
   function setBrightness(value) {
@@ -974,6 +998,9 @@ Panel {
         var focused = String(lines[5] || "").trim()
         // No DDC/CI on an external display: software dimming, read below.
         var external = focused !== "" && !/^(eDP|LVDS|DSI)-/.test(focused)
+        root.externalFocused = external
+        root.hardwareBrightness = hardware
+        if (!external) root.softForced = false
         root.softBrightness = !hardware && external
         root.brightnessAvailable = hardware || root.softBrightness
         if (hardware) root.brightnessPercent = Math.max(0, Math.min(100, parseInt(brightness, 10)))
@@ -1005,6 +1032,7 @@ Panel {
       onStreamFinished: {
         var parts = String(text || "").trim().split(" ")
         var level = parseInt(parts[1], 10)
+        root.softForced = parts[0] === "on"
         if (parts[0] === "on") {
           root.softBrightness = true
           root.brightnessAvailable = true
@@ -1327,6 +1355,85 @@ Panel {
                   root.selectedIndex = -1
                 }
               }
+            }
+          }
+
+          // ---------- Software brightness, for a monitor that ignores its own ----------
+          CursorSurface {
+            id: softRow
+            visible: root.softSwitchShown
+            width: parent.width
+            hasCursor: root.cursorActive && root.focusSection === "softbright"
+            onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(softRow)
+            foreground: root.bar.foreground
+            fill: Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+            implicitHeight: softInner.implicitHeight + Style.spacing.xl
+
+            Row {
+              id: softInner
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.leftMargin: root.insetFor(softRow, Style.space(6))
+              anchors.rightMargin: root.insetFor(softRow, Style.space(6))
+              spacing: Style.space(8)
+
+              Text {
+                text: "󰃞"
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.title
+                width: Style.space(22)
+                horizontalAlignment: Text.AlignHCenter
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Column {
+                width: parent.width - Style.space(22) - softSwitch.width - 2 * parent.spacing
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "Software brightness"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                  width: parent.width
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "For a monitor that doesn't dim when its brightness changes."
+                  color: Qt.darker(root.bar.foreground, 1.4)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                  width: parent.width
+                }
+              }
+
+              ToggleSwitch {
+                id: softSwitch
+                checked: root.softForced
+                interactive: false
+                foreground: root.bar.foreground
+                accent: Commons.Color.accent
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
+                root.cursorActive = true
+                root.focusSection = "softbright"
+                root.selectedIndex = 0
+              }
+              onClicked: root.toggleSoftBrightness()
             }
           }
 

@@ -55,7 +55,9 @@ A small helper, `display-dimd`, then runs in hyprsunset's place: night light,
 own brightness on top (kept in `~/.local/state/display-dim/<output>`, restored
 at login). It's built from `bin/display-dimd.c` the first time it's needed
 (into `~/.cache/omarchy-display`; it needs `cc` and `wayland-scanner`, which
-Omarchy has). `display-dim takeover off` gives hyprsunset back. Restarting
+Omarchy has). `display-dim takeover off` gives hyprsunset back. A monitor that takes brightness over DDC/CI but doesn't
+show it (an HP Z27n G2, for one) gets the same: turn on **Software
+brightness** in the panel with that display focused. Restarting
 hyprsunset from Omarchy's menu starts the real one; the next brightness change
 takes over again.
 
