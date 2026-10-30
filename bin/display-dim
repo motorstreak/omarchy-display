@@ -1,0 +1,92 @@
+#!/bin/bash
+# Software brightness for one display at a time, for monitors whose own
+# brightness can't be set (no DDC/CI, like Samsung's Odyssey OLEDs). The level
+# is kept in $XDG_STATE_HOME/display-dim/<output>; display-dimd (built here from
+# display-dimd.c on first use, into ~/.cache) holds the dimmed displays' gamma.
+#
+#   display-dim get OUTPUT            its level, in percent (100: not dimmed)
+#   display-dim set OUTPUT PERCENT    10 to 100; 100 undims it
+#   display-dim restore               the saved levels again (at login)
+#   display-dim available             exit 0 if it can run here
+#
+# Without a C compiler to build the helper, `set` falls back to hyprsunset's
+# gamma, which dims every display at once.
+
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+state=${XDG_STATE_HOME:-$HOME/.local/state}/display-dim
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-display
+daemon=$cache/display-dimd
+
+usage() {
+  echo "Usage: display-dim get OUTPUT | set OUTPUT PERCENT | restore | available" >&2
+  exit 1
+}
+
+# The helper, built when missing or older than its source.
+build() {
+  [[ -x $daemon && $daemon -nt $here/display-dimd.c ]] && return 0
+  command -v cc >/dev/null && command -v wayland-scanner >/dev/null || return 1
+  mkdir -p "$cache" || return 1
+  local xml=$here/wlr-gamma-control-unstable-v1.xml
+  wayland-scanner client-header "$xml" "$cache/wlr-gamma-control-unstable-v1-client-protocol.h" &&
+    wayland-scanner private-code "$xml" "$cache/wlr-gamma-control-unstable-v1-protocol.c" &&
+    cc -O2 -o "$daemon.new" -I"$cache" "$here/display-dimd.c" "$cache/wlr-gamma-control-unstable-v1-protocol.c" \
+      $(pkg-config --cflags --libs wayland-client 2>/dev/null || echo -lwayland-client) &&
+    mv "$daemon.new" "$daemon"
+}
+
+running() {
+  pgrep -u "$UID" -xf "$daemon" >/dev/null
+}
+
+# Started if needed (it reads the levels as it starts), else told to reread.
+reapply() {
+  if running; then
+    pkill -HUP -u "$UID" -xf "$daemon"
+  else
+    setsid -f "$daemon" >/dev/null 2>&1
+  fi
+}
+
+valid_output() {
+  [[ $1 =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+case ${1:-} in
+get)
+  valid_output "${2:-}" || usage
+  level=$(cat "$state/$2" 2>/dev/null)
+  [[ $level =~ ^[0-9]+$ ]] && echo "$level" || echo 100
+  ;;
+set)
+  valid_output "${2:-}" || usage
+  [[ ${3:-} =~ ^[0-9]+%?$ ]] || usage
+  level=${3%\%}
+  ((level < 10)) && level=10
+  ((level > 100)) && level=100
+  if ! build; then
+    # No compiler: every display at once, through hyprsunset.
+    hyprctl hyprsunset gamma "$level" >/dev/null
+    exit
+  fi
+  mkdir -p "$state"
+  if ((level >= 100)); then
+    rm -f "$state/$2"
+  else
+    echo "$level" >"$state/$2"
+  fi
+  reapply
+  ;;
+restore)
+  compgen -G "$state/*" >/dev/null || exit 0
+  build && reapply
+  ;;
+available)
+  build
+  ;;
+*)
+  usage
+  ;;
+esac

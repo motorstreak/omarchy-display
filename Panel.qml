@@ -23,6 +23,10 @@ Panel {
   property int pendingBrightnessPercent: 0
   property bool brightnessSetQueued: false
   property bool brightnessAvailable: false
+  // A display whose brightness can't be set (no DDC/CI): the slider dims it in
+  // software instead, on its own (bin/display-dim).
+  property bool softBrightness: false
+  readonly property string dimScript: String(Qt.resolvedUrl("bin/display-dim")).replace(/^file:\/\//, "")
   property string internalMonitor: ""
   property string externalMonitor: ""
   property string focusedMonitor: ""
@@ -362,7 +366,9 @@ Panel {
     }
 
     root.brightnessSetQueued = false
-    setBrightnessProc.command = ["omarchy-brightness-display", "--no-osd", "--monitor", root.focusedMonitor, percent + "%"]
+    setBrightnessProc.command = root.softBrightness
+      ? [root.dimScript, "set", root.focusedMonitor, String(percent)]
+      : ["omarchy-brightness-display", "--no-osd", "--monitor", root.focusedMonitor, percent + "%"]
     setBrightnessProc.running = true
   }
 
@@ -859,6 +865,8 @@ Panel {
   }
 
   Component.onCompleted: {
+    // Displays dimmed in software stay dimmed across logins.
+    Quickshell.execDetached([root.dimScript, "restore"])
     setupStatusProc.running = true
     omacvmProc.running = true
     refresh()
@@ -962,8 +970,16 @@ Panel {
       onStreamFinished: {
         var lines = String(text || "").split("\n")
         var brightness = String(lines[0] || "").trim()
-        root.brightnessAvailable = brightness !== "unavailable" && brightness !== ""
-        root.brightnessPercent = root.brightnessAvailable ? Math.max(0, Math.min(100, parseInt(brightness, 10))) : 0
+        var hardware = brightness !== "unavailable" && brightness !== ""
+        var focused = String(lines[5] || "").trim()
+        // No DDC/CI on an external display: software dimming, read below.
+        root.softBrightness = !hardware && focused !== "" && !/^(eDP|LVDS|DSI)-/.test(focused)
+        root.brightnessAvailable = hardware || root.softBrightness
+        if (hardware) root.brightnessPercent = Math.max(0, Math.min(100, parseInt(brightness, 10)))
+        else if (root.softBrightness) {
+          softLevelProc.command = [root.dimScript, "get", focused]
+          softLevelProc.running = true
+        } else root.brightnessPercent = 0
         root.internalMonitor = String(lines[1] || "").trim()
         root.externalMonitor = String(lines[2] || "").trim()
         root.internalEnabled = String(lines[3] || "").trim() !== ""
@@ -971,6 +987,17 @@ Panel {
         root.focusedMonitor = String(lines[5] || "").trim()
         root.monitorScale = root.normalizeScale(String(lines[6] || "").trim())
         root.updateDisplays(String(lines[7] || "[]").trim())
+      }
+    }
+  }
+
+  Process {
+    id: softLevelProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var level = parseInt(String(text || "").trim(), 10)
+        if (root.softBrightness && isFinite(level)) root.brightnessPercent = Math.max(0, Math.min(100, level))
       }
     }
   }
