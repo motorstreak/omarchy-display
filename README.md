@@ -25,6 +25,18 @@ BetterDisplay upgrades the Mac's display settings:
   have it, such as Omarchy's Adwaita Sans. Apps pick it up when they next
   start.
 
+- **In an OmacVM.app VM** (where `/usr/local/bin/omacvm-displays` exists),
+  OmacVM's own Display panel additions: **Extra brightness** (the Mac's XDR
+  display, up to 2×) and **Mac displays → Use external displays**. The Mac
+  sizes, scales and places the VM's outputs (`Virtual-1`, `Virtual-2` ...), so
+  their scale goes through `omacvm-displays scale` (in "Full screen including
+  notch", Omarchy's presets, as the Mac resizes the output to fit), they
+  aren't remembered per monitor, and REFRESH RATE and ARRANGE hide. Use this
+  in place of OmacVM's `omacvm.monitor` widget, not beside it.
+
+Omanotch's hidden strip beside a Mac's notch (outputs named `NOTCH*`) isn't
+counted as a display.
+
 Everything else is Omarchy's Display panel: brightness, text size, turning
 displays on and off. `Super + Ctrl + D` opens this panel instead of Omarchy's.
 

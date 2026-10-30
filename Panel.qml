@@ -32,6 +32,30 @@ Panel {
   property var displays: []
   property int enabledDisplayCount: 0
 
+  // ---- OmacVM.app (only in its VMs: /usr/local/bin/omacvm-displays there) ----
+  // The Mac sizes, scales and places the VM's outputs (Virtual-1, Virtual-2 ...),
+  // so their scale goes through omacvm-displays and REFRESH RATE / ARRANGE hide.
+  property bool omacvm: false
+  // In full screen, Omarchy on every Mac display (omacvm-displays external).
+  property bool macDisplays: false
+  property bool macExternal: true
+  // The output in "Full screen including notch" ("" otherwise).
+  property string macFullPanel: ""
+  // The Mac's Extra brightness (omacvm extra-brightness).
+  property bool macExtraShown: false
+  property bool macExtraOn: false
+  property bool macExtraSafe: false
+  property bool macExtraBusy: false
+  // false after no answer and no row (an older app): until the panel opens again.
+  property bool macExtraAsk: true
+  // One more at each click: a reading that started before it is old.
+  property int macExtraSeq: 0
+  readonly property string macExtraTip: "Makes the VM's main window up to about twice as bright as\nthe Mac's normal white, with the extra brightness of this\nMac's XDR display. Use with care: it uses much more battery\nand makes the Mac warmer; macOS turns it down when the Mac\ngets hot. With HDR and 10-bit colour on, this wins while it\nis on: the picture gets brighter, HDR highlights do not.\nOff, HDR is back at once. It ends when the VM stops; the\nswitch keeps your setting for the next start. Experimental.\nThe same switch as Extra brightness in the VM's settings on\nthe Mac."
+  readonly property bool targetMacManaged: macManaged(targetMonitor)
+  function macManaged(name) {
+    return omacvm && /^Virtual-[0-9]+$/.test(String(name || ""))
+  }
+
   // Carry sub-notch touchpad deltas between wheel events.
   property real wheelAccumulator: 0
 
@@ -61,7 +85,13 @@ Panel {
       if (displays[i] && displays[i].enabled && monitorInfo[displays[i].name]) names.push(displays[i].name)
     return names
   }
-  readonly property var scaleValues: targetInfo ? Model.looksLikeOptions(targetInfo.width, targetInfo.height) : []
+  // In "Full screen including notch" the Mac resizes the output to fit the
+  // scale: Omarchy's presets, not the scales today's size divides by.
+  readonly property var macScalePresets: ["1", "1.25", "1.6", "2", "3", "4"]
+  readonly property var scaleValues: !targetInfo ? []
+    : targetMacManaged && targetMonitor === macFullPanel
+      ? Model.presetOptions(macScalePresets, targetInfo.width, targetInfo.height)
+      : Model.looksLikeOptions(targetInfo.width, targetInfo.height)
   readonly property int scaleColumns: 2
   property string focusSection: "scale"
   property int selectedIndex: 0
@@ -88,12 +118,14 @@ Panel {
   readonly property var visibleSections: {
     var list = []
     if (brightnessAvailable) list.push("brightness")
+    if (macExtraShown) list.push("extra")
     list.push("textsize")
     list.push("rendering")
     if (displays.length > 1) list.push("target")
     list.push("scale")
     if (refreshOptions.length > 1) list.push("refresh")
     if (arrangeVisible) list.push("arrange")
+    if (macDisplays) list.push("mac")
     return list
   }
 
@@ -105,13 +137,14 @@ Panel {
     if (section === "target") return displays.length
     if (section === "arrange") return arrangeOptions.length
     if (section === "refresh") return refreshOptions.length
+    if (section === "extra" || section === "mac") return 1
     return 0
   }
 
   function sectionIsSingleRow(section) {
     // brightness and text size are lone sliders; monitor pills sit horizontally.
     return section === "brightness" || section === "textsize" || section === "rendering" || section === "target"
-      || section === "arrange" || section === "refresh"
+      || section === "arrange" || section === "refresh" || section === "extra" || section === "mac"
   }
 
   function sectionFirstIndex(section) {
@@ -195,6 +228,14 @@ Panel {
   }
 
   function activateCursor() {
+    if (focusSection === "extra") {
+      toggleMacExtra()
+      return
+    }
+    if (focusSection === "mac") {
+      toggleMacExternal()
+      return
+    }
     if (focusSection === "rendering" && selectedIndex >= 0 && selectedIndex < textModes.length) {
       setTextMode(textModes[selectedIndex].id)
       return
@@ -304,6 +345,10 @@ Panel {
     if (!textModeProc.running) textModeProc.running = true
     if (!monitorsProc.running) monitorsProc.running = true
     if (!arrangementProc.running) arrangementProc.running = true
+    if (!root.omacvm) return
+    if (!macStateProc.running) macStateProc.running = true
+    if (!macFullPanelProc.running) macFullPanelProc.running = true
+    root.askMacExtra()
   }
 
   function setBrightness(value) {
@@ -366,7 +411,7 @@ Panel {
   // ---- Refresh rate: the rates the targeted monitor offers at its current
   // resolution (hyprctl's availableModes), fastest first, one per rate.
   readonly property var refreshOptions: {
-    if (!targetInfo || !targetInfo.availableModes) return []
+    if (!targetInfo || !targetInfo.availableModes || targetMacManaged) return []
     var prefix = targetInfo.width + "x" + targetInfo.height + "@"
     var seen = {}
     var list = []
@@ -417,7 +462,9 @@ Panel {
     }
     return names.length ? names[0] : ""
   }
-  readonly property bool arrangeVisible: enabledNames.length > 1 && targetMonitor !== "" && targetMonitor !== anchorMonitor
+  // The Mac places OmacVM.app's outputs as its own displays are arranged.
+  readonly property bool mapVisible: enabledNames.length > 1 && !omacvm
+  readonly property bool arrangeVisible: mapVisible && targetMonitor !== "" && targetMonitor !== anchorMonitor
   readonly property string targetSide: (targetInfo && arrangement[targetInfo.description]) || "right"
 
   // ---- The map: each monitor on, as a rectangle its "looks like" size, where
@@ -577,6 +624,14 @@ Panel {
   function setScale(scale) {
     var value = Number(scale)
     if (!/^[A-Za-z0-9._-]+$/.test(targetMonitor) || !isFinite(value) || value <= 0) return
+    // OmacVM.app's outputs: omacvm-displays scales the focused one (in "Full
+    // screen including notch" the Mac first resizes it to fit), so focus it.
+    if (targetMacManaged) {
+      actionProc.command = ["sh", "-c", "hyprctl eval \"$1\" >/dev/null; exec /usr/local/bin/omacvm-displays scale \"$2\"",
+        "sh", "hl.dispatch(hl.dsp.focus({ monitor = \"" + targetMonitor + "\" }))", String(value)]
+      if (!actionProc.running) actionProc.running = true
+      return
+    }
     // Not set up (see setupNeeded): applied directly, for now only.
     var name = "\"" + targetMonitor + "\""
     var v = value.toPrecision(8)
@@ -586,6 +641,126 @@ Panel {
       "hl.monitor({ output = m.name, mode = string.format('%dx%d@%.2f', m.width, m.height, m.refresh_rate), " +
       "position = 'auto', scale = " + v + ", transform = m.transform or 0 }) end end end"]
     if (!actionProc.running) actionProc.running = true
+  }
+
+  // ---- OmacVM.app: is this one of its VMs? ----
+  Process {
+    id: omacvmProc
+    command: ["test", "-x", "/usr/local/bin/omacvm-displays"]
+    onExited: function(exitCode) {
+      root.omacvm = exitCode === 0
+      if (root.omacvm) root.refresh()
+    }
+  }
+
+  // ---- OmacVM.app: the Mac's external displays ----
+  function toggleMacExternal() {
+    root.macExternal = !root.macExternal
+    macToggleProc.command = ["/usr/local/bin/omacvm-displays", "external", root.macExternal ? "on" : "off"]
+    if (!macToggleProc.running) macToggleProc.running = true
+  }
+
+  Process {
+    id: macStateProc
+    command: ["/usr/local/bin/omacvm-displays", "state"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var state = String(text || "").trim()
+        root.macDisplays = state === "on" || state === "off"
+        if (root.macDisplays) root.macExternal = state === "on"
+      }
+    }
+  }
+
+  Process {
+    id: macFullPanelProc
+    command: ["/usr/local/bin/omacvm-displays", "fullpanel"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.macFullPanel = String(text || "").trim()
+    }
+  }
+
+  Process {
+    id: macToggleProc
+    stdout: StdioCollector { waitForEnd: true }
+    onRunningChanged: if (!running && !macStateProc.running) macStateProc.running = true
+  }
+
+  // ---- OmacVM.app: the Mac's Extra brightness (an XDR display) ----
+  function toggleMacExtra() {
+    if (!root.macExtraShown || root.macExtraSafe || root.macExtraBusy) return
+    root.macExtraSeq += 1
+    root.macExtraOn = !root.macExtraOn
+    root.macExtraBusy = true
+    macExtraSetProc.command = ["/usr/local/bin/omacvm", "extra-brightness", root.macExtraOn ? "on" : "off", "--json"]
+    macExtraSetProc.running = true
+  }
+
+  // The answer of omacvm extra-brightness --json: the state, or a refusal
+  // ({"code"}). Anything else: no switch here.
+  function macExtraAnswer(text) {
+    var s = null
+    try { s = JSON.parse(String(text || "").trim()) } catch (e) { s = null }
+    if (s && typeof s.display === "boolean") {
+      root.macExtraShown = s.display
+      root.macExtraSafe = s.safe_mode === true
+      root.macExtraOn = s.on === true
+      return true
+    }
+    return false
+  }
+
+  // Not while a click is on its way: its own answer says how it went.
+  function askMacExtra() {
+    if (!root.omacvm || !root.macExtraAsk || root.macExtraBusy || macExtraProc.running) return
+    macExtraProc.seq = root.macExtraSeq
+    macExtraProc.running = true
+  }
+
+  Process {
+    id: macExtraProc
+    // macExtraSeq when it started (the 5 s refresh may run into a click).
+    property int seq: 0
+    command: ["/usr/local/bin/omacvm", "extra-brightness", "--json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        // Read before the last click: old, the switch would jump back.
+        if (macExtraProc.seq !== root.macExtraSeq || root.macExtraBusy) return
+        if (root.macExtraAnswer(text)) return
+        // No answer. With the row there, the port was busy a moment: the row
+        // stays, the next refresh asks again. Without: no row until the panel
+        // opens again.
+        if (!root.macExtraShown) root.macExtraAsk = false
+      }
+    }
+  }
+
+  Process {
+    id: macExtraSetProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.macExtraBusy = false
+        if (root.macExtraAnswer(text)) return
+        // Refused (the VM's window not in front, too quick) or no answer:
+        // back as it was, then the app's own state.
+        root.macExtraOn = !root.macExtraOn
+        root.macExtraAsk = true
+        root.askMacExtra()
+      }
+    }
+  }
+
+  // The app's own switch changes it on the Mac too: asked every second while
+  // the panel is open, so this one follows within about a second.
+  Timer {
+    interval: 1000
+    running: root.opened && root.omacvm && root.macExtraAsk
+    repeat: true
+    onTriggered: root.askMacExtra()
   }
 
   // ---- Text rendering (bin/display-text): crisp, then three Mac-like steps ----
@@ -685,6 +860,7 @@ Panel {
 
   Component.onCompleted: {
     setupStatusProc.running = true
+    omacvmProc.running = true
     refresh()
   }
 
@@ -694,6 +870,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       targetMonitor = ""
+      macExtraAsk = true
       refresh()
       if (!setupStatusProc.running) setupStatusProc.running = true
       if (brightnessAvailable) {
@@ -761,7 +938,8 @@ Panel {
         var info = {}
         try {
           var list = JSON.parse(String(text || "[]"))
-          for (var i = 0; i < list.length; i++) info[list[i].name] = list[i]
+          for (var i = 0; i < list.length; i++)
+            if (!Model.notchHidden(list[i].name)) info[list[i].name] = list[i]
         } catch (e) {}
         // Not under a rectangle being dragged; a fresh layout replaces the
         // places shown since the last drop.
@@ -858,11 +1036,19 @@ Panel {
     }
   }
 
+  // Screens, less Omanotch's strip beside the notch.
+  function screenCount() {
+    var n = 0
+    for (var i = 0; i < Quickshell.screens.length; i++)
+      if (Quickshell.screens[i] && !Model.notchHidden(Quickshell.screens[i].name)) n++
+    return n
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: Quickshell.screens.length > 1 ? "󰍺" : "󰍹"
+    text: root.screenCount() > 1 ? "󰍺" : "󰍹"
     onPressed: function(b) { root.toggle() }
     onWheelMoved: function(delta) {
       if (!root.brightnessAvailable) return
@@ -1102,6 +1288,109 @@ Panel {
                   root.selectedIndex = -1
                 }
               }
+            }
+          }
+
+          // ---------- OmacVM.app: the Mac's Extra brightness ----------
+          PanelSeparator {
+            visible: root.macExtraShown && !root.brightnessAvailable
+            foreground: root.bar.foreground
+          }
+
+          CursorSurface {
+            id: macExtraRow
+            visible: root.macExtraShown
+            width: parent.width
+            hasCursor: root.cursorActive && root.focusSection === "extra"
+            onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(macExtraRow)
+            foreground: root.bar.foreground
+            fill: Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+            implicitHeight: macExtraInner.implicitHeight + Style.spacing.xl
+            opacity: root.macExtraSafe ? 0.45 : 1.0
+
+            Row {
+              id: macExtraInner
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.leftMargin: root.insetFor(macExtraRow, Style.space(6))
+              anchors.rightMargin: root.insetFor(macExtraRow, Style.space(6))
+              spacing: Style.space(8)
+
+              Text {
+                text: "󰃠"
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.title
+                width: Style.space(22)
+                horizontalAlignment: Text.AlignHCenter
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Column {
+                width: parent.width - Style.space(22) - macExtraInfo.width - macExtraSwitch.width - 3 * parent.spacing
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "Extra brightness"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                  width: parent.width
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.macExtraSafe ? "Off while GPU safe mode is on." : "Up to 2x on this Mac's XDR display. Use with care."
+                  color: Qt.darker(root.bar.foreground, 1.4)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                  width: parent.width
+                }
+              }
+
+              Text {
+                id: macExtraInfo
+                textFormat: Text.PlainText
+                text: "󰋽"
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
+
+                PanelToolTip {
+                  visible: macExtraRow.hasCursor
+                  text: root.macExtraTip
+                  fontFamily: root.bar.fontFamily
+                }
+              }
+
+              // The row owns the click and the cursor, as in Omarchy's Toggle.
+              ToggleSwitch {
+                id: macExtraSwitch
+                checked: root.macExtraOn
+                busy: root.macExtraBusy
+                interactive: false
+                foreground: root.bar.foreground
+                accent: Commons.Color.accent
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: root.macExtraSafe ? Qt.ArrowCursor : Qt.PointingHandCursor
+              onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
+                root.cursorActive = true
+                root.focusSection = "extra"
+                root.selectedIndex = 0
+              }
+              onClicked: root.toggleMacExtra()
             }
           }
 
@@ -1379,7 +1668,7 @@ Panel {
             // Where the monitors sit, with more than one on: drag them on the
             // map, or pick a side for the chosen one below it.
             Item {
-              visible: root.enabledNames.length > 1
+              visible: root.mapVisible
               width: parent.width
               implicitHeight: Math.max(arrangeHeader.implicitHeight, arrangeHint.implicitHeight) + Style.space(4)
 
@@ -1408,7 +1697,7 @@ Panel {
 
             Item {
               id: arrangeMap
-              visible: root.enabledNames.length > 1 && root.mapRects.length > 1
+              visible: root.mapVisible && root.mapRects.length > 1
               width: parent.width
               readonly property real pad: Style.space(8)
               readonly property real maxHeight: Style.space(170)
@@ -1503,6 +1792,103 @@ Panel {
                   pillIndex: index
                   width: (arrangeRow.width - arrangeRow.spacing * (root.arrangeOptions.length - 1)) / root.arrangeOptions.length
                 }
+              }
+            }
+          }
+
+          // ---------- OmacVM.app: Mac displays ----------
+          PanelSeparator {
+            visible: root.macDisplays
+            foreground: root.bar.foreground
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(10)
+            visible: root.macDisplays
+
+            PanelSectionHeader {
+              text: "MAC DISPLAYS"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            CursorSurface {
+              id: macExternalRow
+              width: parent.width
+              hasCursor: root.cursorActive && root.focusSection === "mac"
+              onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(macExternalRow)
+              foreground: root.bar.foreground
+              fill: Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+              implicitHeight: macExternalInner.implicitHeight + Style.spacing.xl
+
+              Row {
+                id: macExternalInner
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: root.insetFor(macExternalRow, Style.space(6))
+                anchors.rightMargin: root.insetFor(macExternalRow, Style.space(6))
+                spacing: Style.space(8)
+
+                Text {
+                  text: "󰍺"
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.title
+                  width: Style.space(22)
+                  horizontalAlignment: Text.AlignHCenter
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Column {
+                  width: parent.width - Style.space(22) - macExternalSwitch.width - 2 * parent.spacing
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(2)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "Use external displays"
+                    color: root.bar.foreground
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.body
+                    elide: Text.ElideRight
+                    width: parent.width
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.macExternal ? "Full screen fills every Mac display"
+                                           : "Full screen stays on one Mac display"
+                    color: Qt.darker(root.bar.foreground, 1.4)
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
+                    width: parent.width
+                  }
+                }
+
+                ToggleSwitch {
+                  id: macExternalSwitch
+                  checked: root.macExternal
+                  busy: macToggleProc.running
+                  interactive: false
+                  foreground: root.bar.foreground
+                  accent: Commons.Color.accent
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onContainsMouseChanged: if (containsMouse && !root.reflowingText) {
+                  root.cursorActive = true
+                  root.focusSection = "mac"
+                  root.selectedIndex = 0
+                }
+                onClicked: root.toggleMacExternal()
               }
             }
           }

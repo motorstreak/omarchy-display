@@ -107,6 +107,35 @@ function looksLikeOptions(width, height) {
   return options
 }
 
+// OmacVM.app's "Full screen including notch": the Mac gives the output a size
+// each scale fits, so any preset works. The desktop it gives is about the
+// output's size today over the scale. Same 720 px floor as looksLikeOptions.
+function presetOptions(presets, width, height) {
+  var w = Number(width)
+  var h = Number(height)
+  if (!Array.isArray(presets) || !isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return []
+
+  var options = []
+  for (var i = 0; i < presets.length; i++) {
+    var scale = Number(presets[i])
+    var logicalHeight = Math.round(h / scale)
+    if (logicalHeight < 720 && options.length > 0) break
+    options.push({
+      scale: normalizeScale(scale),
+      exact: scale,
+      width: Math.round(w / scale),
+      height: logicalHeight
+    })
+  }
+  return options
+}
+
+// Omanotch's hidden strip beside a Mac's notch (outputs named NOTCH*): not a
+// display, so left out of the list, the count and the bar icon.
+function notchHidden(name) {
+  return String(name || "").indexOf("NOTCH") === 0
+}
+
 // Index of the option matching the monitor's current scale, or -1.
 function matchingOptionIndex(options, currentScale) {
   var current = Number(currentScale)
@@ -137,6 +166,7 @@ function parseDisplays(raw) {
     displays = []
   }
   if (!Array.isArray(displays)) displays = []
+  displays = displays.filter(function(d) { return !(d && notchHidden(d.name)) })
 
   var count = 0
   for (var i = 0; i < displays.length; i++) {
@@ -157,6 +187,8 @@ if (typeof module !== "undefined") {
     matchingScaleIndex: matchingScaleIndex,
     availableScales: availableScales,
     looksLikeOptions: looksLikeOptions,
+    presetOptions: presetOptions,
+    notchHidden: notchHidden,
     matchingOptionIndex: matchingOptionIndex,
     brightnessName: brightnessName,
     parseDisplays: parseDisplays

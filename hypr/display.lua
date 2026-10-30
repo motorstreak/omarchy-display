@@ -50,6 +50,15 @@ local function write_state()
   f:close()
 end
 
+-- In OmacVM.app the Mac sizes, scales and places the VM's outputs (Virtual-1,
+-- Virtual-2 ...), which all share one description: they're left to it.
+local omacvm_agent = io.open("/usr/local/bin/omacvm-displays")
+local omacvm = omacvm_agent ~= nil
+if omacvm_agent then omacvm_agent:close() end
+local function omacvm_owned(m)
+  return omacvm and tostring(m.name or ""):match("^Virtual%-%d+$") ~= nil
+end
+
 local function mode_of(m)
   return string.format("%dx%d@%.2f", m.width, m.height, m.refresh_rate)
 end
@@ -217,7 +226,7 @@ end
 
 local function usable(m)
   return m.description and m.description ~= "" and not m.disabled and not m.mirror_of
-    and (m.width or 0) > 0 and (m.height or 0) > 0
+    and (m.width or 0) > 0 and (m.height or 0) > 0 and not omacvm_owned(m)
 end
 
 -- Omarchy's lid script (omarchy-hyprland-monitor-clamshell) turns the laptop
@@ -259,6 +268,20 @@ end
 
 read_state()
 read_arrangement()
+-- OmacVM.app's outputs aren't remembered: an entry saved before is dropped.
+do
+  local dropped = false
+  for _, m in ipairs(hl.get_monitors()) do
+    if omacvm_owned(m) and m.description and saved[m.description] then
+      saved[m.description] = nil
+      for i, desc in ipairs(order) do
+        if desc == m.description then table.remove(order, i); break end
+      end
+      dropped = true
+    end
+  end
+  if dropped then write_state() end
+end
 do
   local positions = layout()
   for _, desc in ipairs(order) do rule_for(desc, positions[desc]) end
