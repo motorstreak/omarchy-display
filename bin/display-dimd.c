@@ -79,7 +79,14 @@ static void gamma_size(void *data, struct zwlr_gamma_control_v1 *c, uint32_t siz
 
 static void gamma_failed(void *data, struct zwlr_gamma_control_v1 *c) {
   struct output *o = data;
-  fprintf(stderr, "display-dimd: %s: gamma control refused (another program has it)\n", o->name);
+  // Refused: another program has it, or the output has no gamma ramps at all
+  // (some connections offer only a colour matrix). Noted for bin/display-dim,
+  // which then dims through hyprsunset instead.
+  fprintf(stderr, "display-dimd: %s: gamma control refused\n", o->name);
+  char path[640];
+  snprintf(path, sizeof path, "%s/.no-gamma-%s", state_dir, o->name);
+  FILE *f = fopen(path, "w");
+  if (f) fclose(f);
   zwlr_gamma_control_v1_destroy(c);
   o->control = NULL;
   o->size = 0;

@@ -9,8 +9,9 @@
 #   display-dim restore               the saved levels again (at login)
 #   display-dim available             exit 0 if it can run here
 #
-# Without a C compiler to build the helper, `set` falls back to hyprsunset's
-# gamma, which dims every display at once.
+# Without a C compiler to build the helper, or for a display that refuses its
+# gamma (some connections offer none; display-dimd notes it in .no-gamma-<output>),
+# `set` falls back to hyprsunset's gamma, which dims every display at once.
 
 set -uo pipefail
 
@@ -67,21 +68,27 @@ set)
   level=${3%\%}
   ((level < 10)) && level=10
   ((level > 100)) && level=100
-  if ! build; then
-    # No compiler: every display at once, through hyprsunset.
-    hyprctl hyprsunset gamma "$level" >/dev/null
-    exit
-  fi
   mkdir -p "$state"
   if ((level >= 100)); then
     rm -f "$state/$2"
   else
     echo "$level" >"$state/$2"
   fi
+  if ! build || [[ -e $state/.no-gamma-$2 ]]; then
+    # Every display at once, through hyprsunset.
+    hyprctl hyprsunset gamma "$level" >/dev/null
+    exit
+  fi
   reapply
   ;;
 restore)
   compgen -G "$state/*" >/dev/null || exit 0
+  for f in "$state"/.no-gamma-*; do
+    [[ -e $f ]] || continue
+    out=${f##*/.no-gamma-}
+    level=$(cat "$state/$out" 2>/dev/null)
+    [[ $level =~ ^[0-9]+$ ]] && hyprctl hyprsunset gamma "$level" >/dev/null
+  done
   build && reapply
   ;;
 available)
