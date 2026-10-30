@@ -1,17 +1,20 @@
 #!/bin/bash
-# Software brightness for one display at a time, for monitors whose own
-# brightness can't be set (no DDC/CI, like Samsung's Odyssey OLEDs). The level
-# is kept in $XDG_STATE_HOME/display-dim/<output>; display-dimd (built here from
-# display-dimd.c on first use, into ~/.cache) holds the dimmed displays' gamma.
+# Software brightness for monitors whose own brightness can't be set (no
+# DDC/CI, like Samsung's Odyssey OLEDs), each display on its own.
+#
+# Hyprland lets one program set the displays' colour matrix, and that's
+# hyprsunset (night light). With the takeover on, display-dimd (built here from
+# display-dimd.c on first use, into ~/.cache) runs in its place: night light,
+# hyprsunset's commands and its profiles as before, and a brightness for each
+# display, kept in $XDG_STATE_HOME/display-dim/<output>. With it off, a level
+# is set through hyprsunset's gamma, which dims every display at once.
 #
 #   display-dim get OUTPUT            its level, in percent (100: not dimmed)
 #   display-dim set OUTPUT PERCENT    10 to 100; 100 undims it
-#   display-dim restore               the saved levels again (at login)
-#   display-dim available             exit 0 if it can run here
-#
-# Without a C compiler to build the helper, or for a display that refuses its
-# gamma (some connections offer none; display-dimd notes it in .no-gamma-<output>),
-# `set` falls back to hyprsunset's gamma, which dims every display at once.
+#   display-dim takeover on|off       run in hyprsunset's place, or give it back
+#   display-dim takeover              "on" or "off"
+#   display-dim restore               as left (at login)
+#   display-dim available             exit 0 if the helper can be built here
 
 set -uo pipefail
 
@@ -19,9 +22,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 state=${XDG_STATE_HOME:-$HOME/.local/state}/display-dim
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-display
 daemon=$cache/display-dimd
+log=${XDG_RUNTIME_DIR:-/tmp}/display-dimd.log
 
 usage() {
-  echo "Usage: display-dim get OUTPUT | set OUTPUT PERCENT | restore | available" >&2
+  echo "Usage: display-dim get OUTPUT | set OUTPUT PERCENT | takeover [on|off] | restore | available" >&2
   exit 1
 }
 
@@ -30,26 +34,42 @@ build() {
   [[ -x $daemon && $daemon -nt $here/display-dimd.c ]] && return 0
   command -v cc >/dev/null && command -v wayland-scanner >/dev/null || return 1
   mkdir -p "$cache" || return 1
-  local xml=$here/wlr-gamma-control-unstable-v1.xml
-  wayland-scanner client-header "$xml" "$cache/wlr-gamma-control-unstable-v1-client-protocol.h" &&
-    wayland-scanner private-code "$xml" "$cache/wlr-gamma-control-unstable-v1-protocol.c" &&
-    cc -O2 -o "$daemon.new" -I"$cache" "$here/display-dimd.c" "$cache/wlr-gamma-control-unstable-v1-protocol.c" \
-      $(pkg-config --cflags --libs wayland-client 2>/dev/null || echo -lwayland-client) &&
+  local xml=$here/hyprland-ctm-control-v1.xml
+  wayland-scanner client-header "$xml" "$cache/hyprland-ctm-control-v1-client-protocol.h" &&
+    wayland-scanner private-code "$xml" "$cache/hyprland-ctm-control-v1-protocol.c" &&
+    cc -O2 -o "$daemon.new" -I"$cache" "$here/display-dimd.c" "$cache/hyprland-ctm-control-v1-protocol.c" \
+      $(pkg-config --cflags --libs wayland-client 2>/dev/null || echo -lwayland-client) -lm &&
     mv "$daemon.new" "$daemon"
+}
+
+taken_over() {
+  [[ -e $state/.takeover ]]
 }
 
 running() {
   pgrep -u "$UID" -xf "$daemon" >/dev/null
 }
 
-# Started if needed (it reads the levels as it starts), else told to reread.
-reapply() {
-  if running; then
-    pkill -HUP -u "$UID" -xf "$daemon"
-  else
-    # Its complaints (a display refused) kept for a look.
-    setsid -f "$daemon" >/dev/null 2>>"${XDG_RUNTIME_DIR:-/tmp}/display-dimd.log"
+# hyprsunset itself (not the helper, which goes by its name too).
+real_hyprsunset() {
+  pgrep -u "$UID" -f '^(/usr/bin/)?hyprsunset( |$)' 2>/dev/null
+}
+
+# The helper running, in hyprsunset's place: night light carried over.
+start() {
+  running && return 0
+  build || return 1
+  local temp=""
+  if [[ -n $(real_hyprsunset) ]]; then
+    temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE '^[0-9]+$')
+    pkill -u "$UID" -f '^(/usr/bin/)?hyprsunset( |$)'
+    for _ in {1..20}; do [[ -z $(real_hyprsunset) ]] && break; sleep 0.1; done
   fi
+  setsid -f "$daemon" >/dev/null 2>>"$log"
+  for _ in {1..20}; do running && hyprctl hyprsunset temperature >/dev/null 2>&1 && break; sleep 0.1; done
+  # Night light on (below hyprsunset's 6000 K): kept on.
+  [[ -n $temp && $temp -lt 6000 ]] && hyprctl hyprsunset temperature "$temp" >/dev/null 2>&1
+  return 0
 }
 
 valid_output() {
@@ -74,22 +94,38 @@ set)
   else
     echo "$level" >"$state/$2"
   fi
-  if ! build || [[ -e $state/.no-gamma-$2 ]]; then
+  if taken_over && start; then
+    pkill -HUP -u "$UID" -xf "$daemon"
+  else
     # Every display at once, through hyprsunset.
     hyprctl hyprsunset gamma "$level" >/dev/null
-    exit
   fi
-  reapply
+  ;;
+takeover)
+  case ${2:-} in
+  "") taken_over && echo on || echo off ;;
+  on)
+    build || { echo "display-dim: can't build the helper (needs cc and wayland-scanner)" >&2; exit 1; }
+    mkdir -p "$state" && touch "$state/.takeover"
+    # hyprsunset's gamma was the fallback's dimming: back to full.
+    hyprctl hyprsunset gamma 100 >/dev/null 2>&1
+    start
+    ;;
+  off)
+    rm -f "$state/.takeover"
+    if running; then
+      temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE '^[0-9]+$')
+      pkill -TERM -u "$UID" -xf "$daemon"
+      for _ in {1..20}; do running || break; sleep 0.1; done
+      setsid -f uwsm-app -- hyprsunset >/dev/null 2>&1
+      [[ -n $temp && $temp -lt 6000 ]] && { sleep 1; hyprctl hyprsunset temperature "$temp" >/dev/null 2>&1; }
+    fi
+    ;;
+  *) usage ;;
+  esac
   ;;
 restore)
-  compgen -G "$state/*" >/dev/null || exit 0
-  for f in "$state"/.no-gamma-*; do
-    [[ -e $f ]] || continue
-    out=${f##*/.no-gamma-}
-    level=$(cat "$state/$out" 2>/dev/null)
-    [[ $level =~ ^[0-9]+$ ]] && hyprctl hyprsunset gamma "$level" >/dev/null
-  done
-  build && reapply
+  taken_over && start
   ;;
 available)
   build

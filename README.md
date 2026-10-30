@@ -43,13 +43,21 @@ displays on and off. `Super + Ctrl + D` opens this panel instead of Omarchy's.
 **Brightness on monitors that can't set their own.** Some monitors don't take
 brightness from the computer (no DDC/CI; Samsung's Odyssey OLEDs, for one), so
 Omarchy's brightness does nothing on them. For those the slider dims the
-picture in software instead, that display alone: `bin/display-dim` keeps each
-level in `~/.local/state/display-dim/<output>` and a small helper,
-`display-dimd`, holds the display's gamma. It's built from `bin/display-dimd.c`
-the first time it's needed (into `~/.cache/omarchy-display`; it needs `cc` and
-`wayland-scanner`, which Omarchy has) and restores the levels at login. Night
-light still works on top. Without a compiler it falls back to hyprsunset,
-which dims every display together.
+picture in software. Hyprland lets one program change the displays' colours,
+and that's hyprsunset (night light), which dims every display together. To dim
+each display on its own, turn the takeover on:
+
+    ~/.config/omarchy/plugins/io.github.motorstreak.display/bin/display-dim takeover on
+
+A small helper, `display-dimd`, then runs in hyprsunset's place: night light,
+`hyprctl hyprsunset ...`, Omarchy's night light toggle and the profiles in
+`~/.config/hypr/hyprsunset.conf` all work as before, and each display gets its
+own brightness on top (kept in `~/.local/state/display-dim/<output>`, restored
+at login). It's built from `bin/display-dimd.c` the first time it's needed
+(into `~/.cache/omarchy-display`; it needs `cc` and `wayland-scanner`, which
+Omarchy has). `display-dim takeover off` gives hyprsunset back. Restarting
+hyprsunset from Omarchy's menu starts the real one; the next brightness change
+takes over again.
 
 Wayland apps draw straight at the monitor's real pixels for any of these
 scales, so unlike a Mac there's no need to render at 2× and shrink.

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hyprland's colour transform protocol (hyprland-protocols), which
+     hyprsunset uses: one client at a time sets a 3x3 matrix for each output.
+     Copyright © 2024 Vaxry; BSD 3-Clause, as in hyprland-protocols. -->
+<protocol name="hyprland_ctm_control_v1">
+  <interface name="hyprland_ctm_control_manager_v1" version="2">
+    <request name="set_ctm_for_output">
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="mat0" type="fixed"/>
+      <arg name="mat1" type="fixed"/>
+      <arg name="mat2" type="fixed"/>
+      <arg name="mat3" type="fixed"/>
+      <arg name="mat4" type="fixed"/>
+      <arg name="mat5" type="fixed"/>
+      <arg name="mat6" type="fixed"/>
+      <arg name="mat7" type="fixed"/>
+      <arg name="mat8" type="fixed"/>
+    </request>
+    <request name="commit"/>
+    <request name="destroy" type="destructor"/>
+    <event name="blocked" since="2"/>
+    <enum name="error">
+      <entry name="invalid_matrix" value="0"/>
+    </enum>
+  </interface>
+</protocol>
