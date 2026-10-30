@@ -973,13 +973,19 @@ Panel {
         var hardware = brightness !== "unavailable" && brightness !== ""
         var focused = String(lines[5] || "").trim()
         // No DDC/CI on an external display: software dimming, read below.
-        root.softBrightness = !hardware && focused !== "" && !/^(eDP|LVDS|DSI)-/.test(focused)
+        var external = focused !== "" && !/^(eDP|LVDS|DSI)-/.test(focused)
+        root.softBrightness = !hardware && external
         root.brightnessAvailable = hardware || root.softBrightness
         if (hardware) root.brightnessPercent = Math.max(0, Math.min(100, parseInt(brightness, 10)))
-        else if (root.softBrightness) {
-          softLevelProc.command = [root.dimScript, "get", focused]
+        else if (!root.softBrightness) root.brightnessPercent = 0
+        // An external display can also be set to software brightness (one that
+        // takes it over DDC/CI but doesn't show it): asked of display-dim,
+        // which also gives the level.
+        if (external) {
+          softLevelProc.hardware = hardware
+          softLevelProc.command = [root.dimScript, "status", focused]
           softLevelProc.running = true
-        } else root.brightnessPercent = 0
+        }
         root.internalMonitor = String(lines[1] || "").trim()
         root.externalMonitor = String(lines[2] || "").trim()
         root.internalEnabled = String(lines[3] || "").trim() !== ""
@@ -993,10 +999,16 @@ Panel {
 
   Process {
     id: softLevelProc
+    property bool hardware: false
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var level = parseInt(String(text || "").trim(), 10)
+        var parts = String(text || "").trim().split(" ")
+        var level = parseInt(parts[1], 10)
+        if (parts[0] === "on") {
+          root.softBrightness = true
+          root.brightnessAvailable = true
+        }
         if (root.softBrightness && isFinite(level)) root.brightnessPercent = Math.max(0, Math.min(100, level))
       }
     }

@@ -10,6 +10,10 @@
 # is set through hyprsunset's gamma, which dims every display at once.
 #
 #   display-dim get OUTPUT            its level, in percent (100: not dimmed)
+#   display-dim soft OUTPUT on|off    always dim it in software (a monitor that
+#                                     takes brightness over DDC/CI but doesn't
+#                                     show it, like an HP Z27n G2)
+#   display-dim status OUTPUT         "on LEVEL" or "off LEVEL": soft, and level
 #   display-dim set OUTPUT PERCENT    10 to 100; 100 undims it
 #   display-dim takeover on|off       run in hyprsunset's place, or give it back
 #   display-dim takeover              "on" or "off"
@@ -77,6 +81,21 @@ valid_output() {
 }
 
 case ${1:-} in
+soft)
+  valid_output "${2:-}" || usage
+  case ${3:-} in
+  on) mkdir -p "$state" && touch "$state/.soft-$2" ;;
+  off) rm -f "$state/.soft-$2" ;;
+  "") [[ -e $state/.soft-$2 ]] && echo on || echo off ;;
+  *) usage ;;
+  esac
+  ;;
+status)
+  valid_output "${2:-}" || usage
+  level=$(cat "$state/$2" 2>/dev/null)
+  [[ $level =~ ^[0-9]+$ ]] || level=100
+  [[ -e $state/.soft-$2 ]] && echo "on $level" || echo "off $level"
+  ;;
 get)
   valid_output "${2:-}" || usage
   level=$(cat "$state/$2" 2>/dev/null)
