@@ -46,7 +46,8 @@ reapply() {
   if running; then
     pkill -HUP -u "$UID" -xf "$daemon"
   else
-    setsid -f "$daemon" >/dev/null 2>&1
+    # Its complaints (a display refused) kept for a look.
+    setsid -f "$daemon" >/dev/null 2>>"${XDG_RUNTIME_DIR:-/tmp}/display-dimd.log"
   fi
 }
 
