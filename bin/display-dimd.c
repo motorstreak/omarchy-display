@@ -3,7 +3,7 @@
 // output's gamma control (the compositor drops the ramps when it lets go) and
 // sets a straight ramp scaled to the level. Levels are files in
 // $XDG_STATE_HOME/display-dim/<output> holding a percent; SIGHUP rereads them
-// (bin/display-dim writes them and sends it). 100, or no file: left alone.
+// (bin/display-dim writes them and sends it). 100, or no file: not dimmed.
 // Night light (hyprsunset) works through Hyprland's colour matrix instead, so
 // the two stack.
 
@@ -96,14 +96,11 @@ static const struct zwlr_gamma_control_v1_listener gamma_listener = {
 static void apply(struct output *o) {
   if (!o->name[0] || !manager) return;
   int level = wanted_level(o->name);
-  if (level >= 100) {
-    if (o->control) {
-      zwlr_gamma_control_v1_destroy(o->control);
-      o->control = NULL;
-      o->size = 0;
-    }
+  // Once taken, a control is kept, at 100 with a straight ramp: Hyprland
+  // refuses an output's gamma to a client that let go of it, so the next
+  // dimming would do nothing.
+  if (level >= 100 && !o->control) {
     o->level = 100;
-    o->failed = 0;
     return;
   }
   o->level = level;
