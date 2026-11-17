@@ -998,17 +998,20 @@ Panel {
         var focused = String(lines[5] || "").trim()
         // No DDC/CI on an external display: software dimming, read below.
         var external = focused !== "" && !/^(eDP|LVDS|DSI)-/.test(focused)
-        root.externalFocused = external
+        // A VM's screen (Virtual-1 ...): its virtual GPU ignores the colour
+        // matrix, so software dimming does nothing; the host dims the window.
+        var virtualScreen = /^Virtual-[0-9]+$/.test(focused)
+        root.externalFocused = external && !virtualScreen
         root.hardwareBrightness = hardware
-        if (!external) root.softForced = false
-        root.softBrightness = !hardware && external
+        if (!root.externalFocused) root.softForced = false
+        root.softBrightness = !hardware && root.externalFocused
         root.brightnessAvailable = hardware || root.softBrightness
         if (hardware) root.brightnessPercent = Math.max(0, Math.min(100, parseInt(brightness, 10)))
         else if (!root.softBrightness) root.brightnessPercent = 0
         // An external display can also be set to software brightness (one that
         // takes it over DDC/CI but doesn't show it): asked of display-dim,
         // which also gives the level.
-        if (external) {
+        if (root.externalFocused) {
           softLevelProc.hardware = hardware
           softLevelProc.command = [root.dimScript, "status", focused]
           softLevelProc.running = true

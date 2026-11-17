@@ -34,6 +34,10 @@ BetterDisplay upgrades the Mac's display settings:
   aren't remembered per monitor, and REFRESH RATE and ARRANGE hide. Use this
   in place of OmacVM's `omacvm.monitor` widget, not beside it.
 
+A VM's screen (outputs named `Virtual-*`) has no brightness slider: its
+virtual GPU ignores the colour matrix software dimming uses, so dim the VM's
+window on the host instead (the Mac's brightness keys, for one).
+
 Omanotch's hidden strip beside a Mac's notch (outputs named `NOTCH*`) isn't
 counted as a display.
 
